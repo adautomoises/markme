@@ -19,5 +19,6 @@ let package = Package(
             ]
         ),
         .testTarget(name: "MarkmeCoreTests", dependencies: ["MarkmeCore"]),
+        .executableTarget(name: "Markme", dependencies: ["MarkmeCore"]),
     ]
 )
