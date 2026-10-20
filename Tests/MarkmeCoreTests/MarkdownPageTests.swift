@@ -75,6 +75,11 @@ final class MarkdownPageTests: XCTestCase {
         XCTAssertTrue(html.contains("data-sourcepos=\"1:"))
     }
 
+    func testHeadingGetsAnchorId() {
+        let html = MarkdownRenderer.render("## Antes de sair\n").htmlBody
+        XCTAssertTrue(html.contains("id=\"antes-de-sair\""))
+    }
+
     func testImageKeepsItsPathAsText() {
         let html = MarkdownRenderer.render("![](fotos/planta.png)").htmlBody
         XCTAssertTrue(html.contains("fotos/planta.png"))

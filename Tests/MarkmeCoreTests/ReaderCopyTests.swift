@@ -13,6 +13,8 @@ final class ReaderCopyTests: XCTestCase {
         XCTAssertEqual(ReaderCopy.string(.notUTF8, languageCode: "pt-BR"), "Este arquivo não está em texto UTF-8.")
         XCTAssertEqual(ReaderCopy.string(.unreadable, languageCode: "pt-BR"), "Não foi possível ler este arquivo.")
         XCTAssertEqual(ReaderCopy.string(.findPrompt, languageCode: "pt-BR"), "Buscar")
+        XCTAssertEqual(ReaderCopy.string(.viewMenu, languageCode: "pt-BR"), "Visualizar")
+        XCTAssertEqual(ReaderCopy.string(.viewMenu, languageCode: "en"), "View")
         XCTAssertEqual(ReaderCopy.string(.modeSource, languageCode: "en"), "Text")
         XCTAssertEqual(ReaderCopy.string(.modeSplit, languageCode: "fr"), "Side by side")
         XCTAssertEqual(ReaderCopy.string(.modePage, languageCode: "en"), "Page")

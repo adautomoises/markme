@@ -12,7 +12,7 @@ public struct MarkdownPage: Equatable, Sendable {
 
 public enum MarkdownRenderer {
     public static func render(_ markdown: String) -> MarkdownPage {
-        MarkdownPage(htmlBody: fillEmptyImageAlt(sanitize(renderHTML(markdown))))
+        MarkdownPage(htmlBody: assignHeadingIDs(fillEmptyImageAlt(sanitize(renderHTML(markdown)))))
     }
 
     private static func sanitize(_ html: String) -> String {
@@ -64,6 +64,85 @@ public enum MarkdownRenderer {
         guard let rendered = cmark_render_html(document, options, extensions) else { return "" }
         defer { free(rendered) }
         return String(cString: rendered)
+    }
+
+    private static func assignHeadingIDs(_ html: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: #"(?is)<h([1-6])([^>]*)>(.*?)</h\1>"#) else {
+            return html
+        }
+        let matches = regex.matches(in: html, range: NSRange(html.startIndex..., in: html))
+        var used = Set<String>()
+        var slugs = [String?]()
+        slugs.reserveCapacity(matches.count)
+        for match in matches {
+            guard match.numberOfRanges == 4,
+                  let attrRange = Range(match.range(at: 2), in: html),
+                  let innerRange = Range(match.range(at: 3), in: html) else {
+                slugs.append(nil)
+                continue
+            }
+            let attributes = html[attrRange]
+            if attributes.range(of: #"(?i)(?:^|\s)id\s*="#, options: .regularExpression) != nil {
+                slugs.append(nil)
+                continue
+            }
+            let base = slug(plainHeading(String(html[innerRange])))
+            slugs.append(base.isEmpty ? nil : uniqueSlug(base, used: &used))
+        }
+
+        var result = html
+        for (match, slug) in zip(matches, slugs).reversed() {
+            guard let slug,
+                  let whole = Range(match.range, in: result),
+                  let levelRange = Range(match.range(at: 1), in: result),
+                  let attrRange = Range(match.range(at: 2), in: result),
+                  let innerRange = Range(match.range(at: 3), in: result) else { continue }
+            let level = result[levelRange]
+            let attributes = result[attrRange]
+            let inner = result[innerRange]
+            result.replaceSubrange(whole, with: "<h\(level) id=\"\(slug)\"\(attributes)>\(inner)</h\(level)>")
+        }
+        return result
+    }
+
+    private static func plainHeading(_ html: String) -> String {
+        var text = html.replacingOccurrences(of: "(?is)<[^>]+>", with: "", options: .regularExpression)
+        let entities = [
+            "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": "\"",
+            "&apos;": "'", "&#39;": "'", "&nbsp;": " ",
+        ]
+        for (entity, value) in entities {
+            text = text.replacingOccurrences(of: entity, with: value)
+        }
+        return text
+    }
+
+    private static func slug(_ text: String) -> String {
+        let folded = text
+            .folding(options: .diacriticInsensitive, locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+        var output = ""
+        var hyphen = false
+        for scalar in folded.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                if hyphen, !output.isEmpty { output.append("-") }
+                hyphen = false
+                output.unicodeScalars.append(scalar)
+            } else if !output.isEmpty {
+                hyphen = true
+            }
+        }
+        return output
+    }
+
+    private static func uniqueSlug(_ base: String, used: inout Set<String>) -> String {
+        if used.insert(base).inserted { return base }
+        var index = 1
+        while true {
+            let candidate = "\(base)-\(index)"
+            if used.insert(candidate).inserted { return candidate }
+            index += 1
+        }
     }
 
     private static func fillEmptyImageAlt(_ html: String) -> String {

@@ -12,6 +12,9 @@ struct ReaderView: View {
     @State private var findPresented = false
     @State private var pageScrollLine: Int?
     @State private var sourceScrollLine: Int?
+    @State private var anchorName: String?
+    @State private var anchorToken = 0
+    @State private var hostWindow: NSWindow?
     @State private var sync = ScrollSync()
     @StateObject private var watcher = FileWatcher()
 
@@ -38,9 +41,15 @@ struct ReaderView: View {
         .frame(minWidth: 720, minHeight: 480)
         .background(Color(nsColor: .textBackgroundColor))
         .toolbar { modeToolbar }
+        .background(WindowPlacement { hostWindow = $0 })
         .onAppear { startWatching() }
         .onReceive(NotificationCenter.default.publisher(for: .markmeFind)) { _ in
+            guard ownsMenuAction else { return }
             findPresented = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .markmeMode)) { note in
+            guard ownsMenuAction, let raw = note.object as? String, let mode = ReaderMode(rawValue: raw) else { return }
+            model.mode = mode
         }
         .onDisappear { watcher.stop() }
         .task(id: model.text) { await renderPage() }
@@ -71,6 +80,8 @@ struct ReaderView: View {
             baseURL: fileURL?.deletingLastPathComponent(),
             findQuery: findPresented ? findQuery : "",
             scrollToLine: pageScrollLine,
+            scrollToAnchor: anchorName,
+            anchorToken: anchorToken,
             onLink: open,
             onVisibleLine: pageScrolled
         )
@@ -140,13 +151,13 @@ struct ReaderView: View {
     @ToolbarContentBuilder
     private var modeToolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            modeButton(.source, symbol: "line.3.horizontal", shortcut: "1")
-            modeButton(.split, symbol: "rectangle.split.2x1", shortcut: "2")
-            modeButton(.page, symbol: "photo", shortcut: "3")
+            modeButton(.source, symbol: "line.3.horizontal")
+            modeButton(.split, symbol: "rectangle.split.2x1")
+            modeButton(.page, symbol: "photo")
         }
     }
 
-    private func modeButton(_ mode: ReaderMode, symbol: String, shortcut: Character) -> some View {
+    private func modeButton(_ mode: ReaderMode, symbol: String) -> some View {
         let key: CopyKey = switch mode {
         case .source: .modeSource
         case .split: .modeSplit
@@ -164,7 +175,6 @@ struct ReaderView: View {
         }
         .buttonStyle(.plain)
         .help(copy(key))
-        .keyboardShortcut(KeyEquivalent(shortcut), modifiers: .command)
         .accessibilityLabel(copy(key))
     }
 
@@ -190,9 +200,14 @@ struct ReaderView: View {
         pageHTML = html
     }
 
+    private var ownsMenuAction: Bool {
+        guard let hostWindow else { return NSApp.windows.count < 2 }
+        return hostWindow.isKeyWindow || hostWindow.isMainWindow
+    }
+
     private func open(_ url: URL) {
-        if let fragment = url.fragment, !fragment.isEmpty, sameFile(url) {
-            pageScrollLine = nil
+        if let fragment = url.fragment, !fragment.isEmpty, isCurrentDocument(url) {
+            scrollToAnchor(fragment)
             return
         }
         let href = url.isFileURL ? url.lastPathComponent : url.absoluteString
@@ -203,8 +218,7 @@ struct ReaderView: View {
         case .markdownFile:
             NSWorkspace.shared.open(url)
         case .anchor(let name):
-            pageScrollLine = nil
-            _ = name
+            scrollToAnchor(name)
         case .ignore:
             if url.isFileURL {
                 let ext = url.pathExtension.lowercased()
@@ -213,6 +227,22 @@ struct ReaderView: View {
                 }
             }
         }
+    }
+
+    private func scrollToAnchor(_ name: String) {
+        let decoded = name.removingPercentEncoding ?? name
+        guard !decoded.isEmpty else { return }
+        anchorName = decoded
+        anchorToken += 1
+    }
+
+    private func isCurrentDocument(_ url: URL) -> Bool {
+        if url.scheme == "about" { return true }
+        if sameFile(url) { return true }
+        guard url.isFileURL, let fileURL else { return false }
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        let directory = fileURL.deletingLastPathComponent().standardizedFileURL.resolvingSymlinksInPath().path
+        return path == directory
     }
 
     private func sameFile(_ url: URL) -> Bool {
@@ -264,6 +294,56 @@ private enum HighlighterLibrary {
 
 extension Notification.Name {
     static let markmeFind = Notification.Name("markme.find")
+    static let markmeMode = Notification.Name("markme.mode")
+}
+
+private struct WindowPlacement: NSViewRepresentable {
+    var onWindow: (NSWindow?) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = PlacementView()
+        view.onWindow = onWindow
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let view = nsView as? PlacementView else { return }
+        view.onWindow = onWindow
+    }
+
+    final class PlacementView: NSView {
+        var onWindow: (NSWindow?) -> Void = { _ in }
+        private var placed = false
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            onWindow(window)
+            schedule()
+        }
+
+        private func schedule() {
+            DispatchQueue.main.async { [weak self] in self?.centerIfOffscreen(lock: false) }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                self?.centerIfOffscreen(lock: true)
+            }
+        }
+
+        private func centerIfOffscreen(lock: Bool) {
+            guard let window, !placed else { return }
+            let frame = window.frame
+            guard frame.width > 40, frame.height > 40 else { return }
+            let visible = NSScreen.screens.contains { screen in
+                let overlap = frame.intersection(screen.visibleFrame)
+                return !overlap.isNull && overlap.width > 80 && overlap.height > 80
+            }
+            if !visible {
+                window.center()
+            }
+            if visible || lock {
+                placed = true
+            }
+        }
+    }
 }
 
 final class FileWatcher: ObservableObject {

@@ -1,6 +1,7 @@
 import Foundation
 
 public enum CopyKey: String, Sendable {
+    case viewMenu
     case modeSource
     case modeSplit
     case modePage
@@ -17,6 +18,7 @@ public enum ReaderCopy {
     public static func string(_ key: CopyKey, languageCode: String) -> String {
         let portuguese = languageCode.lowercased().hasPrefix("pt")
         switch key {
+        case .viewMenu: return portuguese ? "Visualizar" : "View"
         case .modeSource: return portuguese ? "Texto" : "Text"
         case .modeSplit: return portuguese ? "Lado a lado" : "Side by side"
         case .modePage: return portuguese ? "Página" : "Page"

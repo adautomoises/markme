@@ -7,6 +7,8 @@ struct PageWebView: NSViewRepresentable {
     let baseURL: URL?
     let findQuery: String
     let scrollToLine: Int?
+    let scrollToAnchor: String?
+    let anchorToken: Int
     var onLink: (URL) -> Void
     var onVisibleLine: (Int) -> Void
 
@@ -41,6 +43,13 @@ struct PageWebView: NSViewRepresentable {
             context.coordinator.lastScroll = scrollToLine
             view.evaluateJavaScript("window.markmeScrollToLine && window.markmeScrollToLine(\(scrollToLine))", completionHandler: nil)
         }
+        if anchorToken != context.coordinator.lastAnchorToken {
+            context.coordinator.lastAnchorToken = anchorToken
+            context.coordinator.pendingAnchor = scrollToAnchor
+            if let scrollToAnchor {
+                Coordinator.scrollToAnchor(scrollToAnchor, in: view)
+            }
+        }
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
@@ -50,6 +59,8 @@ struct PageWebView: NSViewRepresentable {
         var lastBase: URL?
         var lastFind: String?
         var lastScroll: Int?
+        var lastAnchorToken = 0
+        var pendingAnchor: String?
 
         init(onLink: @escaping (URL) -> Void, onVisibleLine: @escaping (Int) -> Void) {
             self.onLink = onLink
@@ -65,7 +76,11 @@ struct PageWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            webView.evaluateJavaScript(Self.scrollScript, completionHandler: nil)
+            webView.evaluateJavaScript(Self.scrollScript) { _, _ in
+                if let pending = self.pendingAnchor {
+                    Self.scrollToAnchor(pending, in: webView)
+                }
+            }
         }
 
         func webView(
@@ -111,5 +126,18 @@ struct PageWebView: NSViewRepresentable {
           };
         }
         """
+
+        fileprivate static func scrollToAnchor(_ id: String, in view: WKWebView) {
+            view.evaluateJavaScript(
+                "document.getElementById(\(jsLiteral(id)))?.scrollIntoView({block:'start'})",
+                completionHandler: nil
+            )
+        }
+
+        private static func jsLiteral(_ value: String) -> String {
+            guard let data = try? JSONSerialization.data(withJSONObject: value),
+                  let text = String(data: data, encoding: .utf8) else { return "\"\"" }
+            return text
+        }
     }
 }
