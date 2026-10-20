@@ -61,6 +61,7 @@ struct PageWebView: NSViewRepresentable {
         var lastScroll: Int?
         var lastAnchorToken = 0
         var pendingAnchor: String?
+        var lastReportedLine: Int?
 
         init(onLink: @escaping (URL) -> Void, onVisibleLine: @escaping (Int) -> Void) {
             self.onLink = onLink
@@ -68,10 +69,17 @@ struct PageWebView: NSViewRepresentable {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            if let line = message.body as? Int {
-                onVisibleLine(line)
+            let line: Int?
+            if let value = message.body as? Int {
+                line = value
             } else if let number = message.body as? NSNumber {
-                onVisibleLine(number.intValue)
+                line = number.intValue
+            } else {
+                line = nil
+            }
+            if let line {
+                lastReportedLine = line
+                onVisibleLine(line)
             }
         }
 
@@ -79,6 +87,11 @@ struct PageWebView: NSViewRepresentable {
             webView.evaluateJavaScript(Self.scrollScript) { _, _ in
                 if let pending = self.pendingAnchor {
                     Self.scrollToAnchor(pending, in: webView)
+                } else if let line = self.lastReportedLine, line > 1 {
+                    webView.evaluateJavaScript(
+                        "window.markmeScrollToLine && window.markmeScrollToLine(\(line))",
+                        completionHandler: nil
+                    )
                 }
             }
         }
@@ -88,12 +101,20 @@ struct PageWebView: NSViewRepresentable {
             decidePolicyFor navigationAction: WKNavigationAction,
             decisionHandler: @escaping @MainActor @Sendable (WKNavigationActionPolicy) -> Void
         ) {
-            guard navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url else {
+            let isLink = navigationAction.navigationType == .linkActivated
+            let initial = Self.isDocumentRequest(navigationAction.request.url, base: lastBase)
+            let decision = DocumentLoadPolicy.decide(
+                isLinkActivation: isLink,
+                requestIsInitialDocument: initial
+            )
+            if decision == .allow {
                 decisionHandler(.allow)
                 return
             }
             decisionHandler(.cancel)
-            onLink(url)
+            if isLink, let url = navigationAction.request.url {
+                onLink(url)
+            }
         }
 
         private static let scrollScript = """
@@ -126,6 +147,21 @@ struct PageWebView: NSViewRepresentable {
           };
         }
         """
+
+        fileprivate static func isDocumentRequest(_ url: URL?, base: URL?) -> Bool {
+            guard let url else { return true }
+            if url.scheme == "about" { return true }
+            guard url.isFileURL, let base else { return false }
+            let requestPath = url.standardizedFileURL.resolvingSymlinksInPath().path
+            let basePath = base.standardizedFileURL.resolvingSymlinksInPath().path
+            return Self.sameDirectory(requestPath, basePath)
+        }
+
+        private static func sameDirectory(_ lhs: String, _ rhs: String) -> Bool {
+            let left = lhs.hasSuffix("/") ? String(lhs.dropLast()) : lhs
+            let right = rhs.hasSuffix("/") ? String(rhs.dropLast()) : rhs
+            return left == right
+        }
 
         fileprivate static func scrollToAnchor(_ id: String, in view: WKWebView) {
             view.evaluateJavaScript(

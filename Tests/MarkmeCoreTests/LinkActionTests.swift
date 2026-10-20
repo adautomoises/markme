@@ -16,4 +16,10 @@ final class LinkActionTests: XCTestCase {
         XCTAssertEqual(LinkResolver.resolve(href: "mailto:a@b.c", baseDirectory: base), .ignore)
         XCTAssertEqual(LinkResolver.resolve(href: "javascript:alert(1)", baseDirectory: base), .ignore)
     }
+
+    func testOnlyTheInitialDocumentLoadIsAllowed() {
+        XCTAssertEqual(DocumentLoadPolicy.decide(isLinkActivation: false, requestIsInitialDocument: true), .allow)
+        XCTAssertEqual(DocumentLoadPolicy.decide(isLinkActivation: true, requestIsInitialDocument: true), .cancel)
+        XCTAssertEqual(DocumentLoadPolicy.decide(isLinkActivation: false, requestIsInitialDocument: false), .cancel)
+    }
 }

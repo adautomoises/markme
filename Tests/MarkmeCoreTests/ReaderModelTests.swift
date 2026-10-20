@@ -34,10 +34,18 @@ final class ReaderModelTests: XCTestCase {
         XCTAssertEqual(model.mode, .source)
         XCTAssertEqual(model.text, "depois")
         XCTAssertNil(model.failure)
-        model.reload(data: nil)
+        model.reload(data: nil, failureDetail: "Permissão negada")
         XCTAssertEqual(model.mode, .source)
         XCTAssertEqual(model.text, "depois")
         XCTAssertEqual(model.failure, .unreadable)
+        XCTAssertEqual(model.failureDetail, "Permissão negada")
+    }
+
+    func testReloadOfInvalidUTF8KeepsTheText() {
+        var model = ReaderModel(fileName: "a.md", data: Data("ainda aqui".utf8), bannerDismissed: true)
+        model.reload(data: Data([0xFF, 0xFE]))
+        XCTAssertEqual(model.failure, .notUTF8)
+        XCTAssertEqual(model.text, "ainda aqui")
     }
 
     func testDismissBannerStaysDismissed() {

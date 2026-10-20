@@ -15,7 +15,9 @@ struct ReaderView: View {
     @State private var anchorName: String?
     @State private var anchorToken = 0
     @State private var hostWindow: NSWindow?
+    @State private var renderGeneration = 0
     @State private var sync = ScrollSync()
+    @FocusState private var findFieldFocused: Bool
     @StateObject private var watcher = FileWatcher()
 
     init(document: ReaderDocument, fileURL: URL?) {
@@ -51,6 +53,9 @@ struct ReaderView: View {
             guard ownsMenuAction, let raw = note.object as? String, let mode = ReaderMode(rawValue: raw) else { return }
             model.mode = mode
         }
+        .onChange(of: findPresented) { _, shown in
+            findFieldFocused = shown
+        }
         .onDisappear { watcher.stop() }
         .task(id: model.text) { await renderPage() }
     }
@@ -58,10 +63,18 @@ struct ReaderView: View {
     @ViewBuilder
     private var documentBody: some View {
         if let failure = model.failure {
-            Text(ReaderCopy.string(failure == .notUTF8 ? .notUTF8 : .unreadable, languageCode: languageCode))
-                .font(.title3)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding()
+            VStack(spacing: 8) {
+                Text(ReaderCopy.string(failure == .notUTF8 ? .notUTF8 : .unreadable, languageCode: languageCode))
+                    .font(.title3)
+                if !model.failureDetail.isEmpty {
+                    Text(model.failureDetail)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding()
         } else {
             switch model.mode {
             case .page:
@@ -99,8 +112,10 @@ struct ReaderView: View {
     private var splitBody: some View {
         GeometryReader { geo in
             let width = max(geo.size.width, 1)
+            let gutter: CGFloat = 8
+            let usable = max(width - gutter, 1)
             HStack(spacing: 0) {
-                source.frame(width: max(width * split.fraction, 0))
+                source.frame(width: max(usable * split.fraction, 0))
                 Rectangle()
                     .fill(Color.secondary.opacity(0.25))
                     .frame(width: 8)
@@ -110,7 +125,7 @@ struct ReaderView: View {
                                 let delta = value.translation.width
                                 var next = SplitFraction()
                                 next.fraction = dragOrigin
-                                next.drag(translation: delta, width: width)
+                                next.drag(translation: delta, width: usable)
                                 split = next
                             }
                             .onEnded { _ in
@@ -140,10 +155,15 @@ struct ReaderView: View {
         HStack {
             TextField(copy(.findPrompt), text: $findQuery)
                 .textFieldStyle(.roundedBorder)
-            Button(copy(.bannerNotNow)) {
+                .focused($findFieldFocused)
+            Button {
                 findQuery = ""
                 findPresented = false
+            } label: {
+                Image(systemName: "xmark")
             }
+            .buttonStyle(.plain)
+            .keyboardShortcut(.cancelAction)
         }
         .padding(8)
     }
@@ -192,11 +212,14 @@ struct ReaderView: View {
     }
 
     private func renderPage() async {
+        renderGeneration += 1
+        let generation = renderGeneration
         let text = model.text
         let highlighter = HighlighterLibrary.script
         let html = await Task.detached(priority: .userInitiated) {
             PageShell.html(body: MarkdownRenderer.render(text).htmlBody, highlighter: highlighter)
         }.value
+        guard generation == renderGeneration else { return }
         pageHTML = html
     }
 
@@ -215,18 +238,23 @@ struct ReaderView: View {
         switch LinkResolver.resolve(href: href, baseDirectory: base) {
         case .browser(let destination):
             NSWorkspace.shared.open(destination)
-        case .markdownFile:
-            NSWorkspace.shared.open(url)
+        case .markdownFile(let destination):
+            openInMarkme(url.isFileURL ? url : destination)
         case .anchor(let name):
             scrollToAnchor(name)
         case .ignore:
             if url.isFileURL {
                 let ext = url.pathExtension.lowercased()
                 if ["md", "markdown", "mdown", "mkd", "mdwn"].contains(ext) {
-                    NSWorkspace.shared.open(url)
+                    openInMarkme(url)
                 }
             }
         }
+    }
+
+    private func openInMarkme(_ url: URL) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open([url], withApplicationAt: Bundle.main.bundleURL, configuration: configuration)
     }
 
     private func scrollToAnchor(_ name: String) {
@@ -267,9 +295,8 @@ struct ReaderView: View {
     private func startWatching() {
         guard let fileURL else { return }
         _ = fileURL.startAccessingSecurityScopedResource()
-        watcher.onChange = {
-            let data = try? Data(contentsOf: fileURL)
-            model.reload(data: data)
+        watcher.onChange = { data, detail in
+            model.reload(data: data, failureDetail: detail)
         }
         watcher.start(url: fileURL)
     }
@@ -347,13 +374,15 @@ private struct WindowPlacement: NSViewRepresentable {
 }
 
 final class FileWatcher: ObservableObject {
-    var onChange: () -> Void = {}
+    var onChange: (Data?, String) -> Void = { _, _ in }
     private var source: DispatchSourceFileSystemObject?
     private var pending: DispatchWorkItem?
     private var descriptor: CInt = -1
+    private var url: URL?
 
     func start(url: URL) {
         stop()
+        self.url = url
         descriptor = open(url.path, O_EVTONLY)
         guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(
@@ -362,7 +391,9 @@ final class FileWatcher: ObservableObject {
             queue: .global(qos: .utility)
         )
         source.setEventHandler { [weak self] in
-            self?.schedule()
+            let flags = source.data
+            let reopen = flags.contains(.rename) || flags.contains(.delete) || flags.contains(.link)
+            self?.schedule(reopen: reopen)
         }
         let descriptor = descriptor
         source.setCancelHandler {
@@ -379,12 +410,26 @@ final class FileWatcher: ObservableObject {
         descriptor = -1
     }
 
-    private func schedule() {
+    private func schedule(reopen: Bool) {
         pending?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.onChange()
+            guard let self else { return }
+            if reopen, let url = self.url {
+                self.start(url: url)
+            }
+            guard let url = self.url else { return }
+            let outcome = Self.read(url)
+            self.onChange(outcome.data, outcome.detail)
         }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+
+    private static func read(_ url: URL) -> (data: Data?, detail: String) {
+        do {
+            return (try Data(contentsOf: url), "")
+        } catch {
+            return (nil, error.localizedDescription)
+        }
     }
 }

@@ -105,6 +105,47 @@ final class MarkdownPageTests: XCTestCase {
         XCTAssertFalse(html.lowercased().contains("javascript:"))
     }
 
+    func testEventHandlersWithoutSpaceDoNotSurvive() {
+        let glued = MarkdownRenderer.render("<div><img src=\"x\"onerror=\"alert(1)\"></div>").htmlBody
+        XCTAssertFalse(glued.lowercased().contains("onerror"))
+        XCTAssertFalse(glued.contains("alert(1)"))
+        let slashed = MarkdownRenderer.render("<div><img/src=\"x\"/onerror=\"alert(1)\"></div>").htmlBody
+        XCTAssertFalse(slashed.lowercased().contains("onerror"))
+        XCTAssertFalse(slashed.contains("alert(1)"))
+    }
+
+    func testJavascriptLinksWithoutQuotesOrEntitiesDoNotSurvive() {
+        let bare = MarkdownRenderer.render("<div><a href=javascript:alert(1)>x</a></div>").htmlBody
+        XCTAssertTrue(bare.contains(">x<") || bare.contains(">x</a>"))
+        XCTAssertFalse(bare.lowercased().contains("javascript:"))
+        let entity = MarkdownRenderer.render("<a href=\"&#106;avascript:alert(1)\">y</a>").htmlBody
+        XCTAssertTrue(entity.contains("y"))
+        XCTAssertFalse(entity.lowercased().contains("javascript"))
+        XCTAssertFalse(entity.contains("alert(1)"))
+    }
+
+    func testOrdinaryOnWordsStayInProseAndCode() {
+        let prose = MarkdownRenderer.render("The value is one=1 and online=yes today.").htmlBody
+        XCTAssertTrue(prose.contains("one=1"))
+        XCTAssertTrue(prose.contains("online=yes"))
+        let code = MarkdownRenderer.render("```\nonline=yes\none=1\nonly=true\n```").htmlBody
+        XCTAssertTrue(code.contains("online=yes"))
+        XCTAssertTrue(code.contains("one=1"))
+        XCTAssertTrue(code.contains("only=true"))
+    }
+
+    func testMetaRefreshIsRemoved() {
+        let html = MarkdownRenderer.render("<meta http-equiv=\"refresh\" content=\"0;url=https://example.com/\">").htmlBody
+        XCTAssertFalse(html.lowercased().contains("<meta"))
+        XCTAssertFalse(html.lowercased().contains("http-equiv"))
+        XCTAssertFalse(html.contains("example.com"))
+    }
+
+    func testTaskCheckboxIsDisabled() {
+        let html = MarkdownRenderer.render("- [ ] caixa\n").htmlBody
+        XCTAssertTrue(html.contains("disabled"))
+    }
+
     func testThousandsOfLinesStillRenderTheEnd() {
         var lines = Array(repeating: "linha", count: 5000)
         lines.append("## Fim")

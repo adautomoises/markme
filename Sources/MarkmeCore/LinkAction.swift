@@ -33,3 +33,15 @@ public enum LinkResolver {
         return .markdownFile(URL(fileURLWithPath: prefix + path).standardizedFileURL)
     }
 }
+
+public enum DocumentLoadDecision: Equatable, Sendable {
+    case allow
+    case cancel
+}
+
+public enum DocumentLoadPolicy {
+    public static func decide(isLinkActivation: Bool, requestIsInitialDocument: Bool) -> DocumentLoadDecision {
+        if isLinkActivation || !requestIsInitialDocument { return .cancel }
+        return .allow
+    }
+}

@@ -63,10 +63,14 @@ struct SourceTextView: NSViewRepresentable {
         }
         if context.coordinator.lastFind != findQuery {
             context.coordinator.lastFind = findQuery
-            guard let range = TextFind.ranges(of: findQuery, in: text).first else { return }
-            let nsRange = NSRange(range, in: text)
-            textView.setSelectedRange(nsRange)
-            textView.scrollRangeToVisible(nsRange)
+            if let range = TextFind.ranges(of: findQuery, in: text).first {
+                let nsRange = NSRange(range, in: text)
+                textView.setSelectedRange(nsRange)
+                textView.scrollRangeToVisible(nsRange)
+            } else {
+                let caret = textView.selectedRange().location
+                textView.setSelectedRange(NSRange(location: min(caret, (text as NSString).length), length: 0))
+            }
         }
         if let scrollToLine, context.coordinator.lastScroll != scrollToLine {
             context.coordinator.lastScroll = scrollToLine

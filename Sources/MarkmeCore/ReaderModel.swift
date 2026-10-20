@@ -15,6 +15,7 @@ public struct ReaderModel: Equatable, Sendable {
     public var fileName: String
     public var text: String
     public var failure: OpenFailure?
+    public var failureDetail: String
     public var mode: ReaderMode
     public var bannerDismissed: Bool
 
@@ -24,11 +25,13 @@ public struct ReaderModel: Equatable, Sendable {
         self.mode = .page
         self.text = ""
         self.failure = nil
-        apply(data, replacingText: true)
+        self.failureDetail = ""
+        apply(data)
     }
 
-    public mutating func reload(data: Data?) {
-        apply(data, replacingText: data != nil)
+    public mutating func reload(data: Data?, failureDetail: String = "") {
+        self.failureDetail = failureDetail
+        apply(data)
     }
 
     public mutating func dismissBannerForever() {
@@ -37,18 +40,19 @@ public struct ReaderModel: Equatable, Sendable {
 
     public var showsBanner: Bool { !bannerDismissed }
 
-    private mutating func apply(_ data: Data?, replacingText: Bool) {
+    private mutating func apply(_ data: Data?) {
         guard let data else {
             failure = .unreadable
             return
         }
         guard let decoded = String(data: data, encoding: .utf8) else {
-            if replacingText { text = "" }
             failure = .notUTF8
+            failureDetail = ""
             return
         }
         text = decoded
         failure = nil
+        failureDetail = ""
     }
 }
 

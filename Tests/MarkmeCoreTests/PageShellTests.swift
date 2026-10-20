@@ -17,5 +17,8 @@ final class PageShellTests: XCTestCase {
         XCTAssertTrue(html.contains("script-src 'unsafe-inline'"))
         XCTAssertTrue(html.contains("img-src file: https: http: data:"))
         XCTAssertFalse(html.contains("script-src 'self'"))
+        XCTAssertTrue(html.contains(".hljs-keyword"))
+        XCTAssertTrue(html.contains(".hljs-string"))
+        XCTAssertTrue(html.contains(".hljs-comment"))
     }
 }

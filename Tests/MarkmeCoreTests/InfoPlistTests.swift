@@ -17,5 +17,7 @@ final class InfoPlistTests: XCTestCase {
         XCTAssertEqual(type["LSHandlerRank"] as? String, "Owner")
         let extensions = try XCTUnwrap(type["CFBundleTypeExtensions"] as? [String])
         XCTAssertEqual(Set(extensions), Set(["md", "markdown", "mdown", "mkd", "mdwn"]))
+        let ats = try XCTUnwrap(plist["NSAppTransportSecurity"] as? [String: Any])
+        XCTAssertEqual(ats["NSAllowsArbitraryLoadsInWebContent"] as? Bool, true)
     }
 }
