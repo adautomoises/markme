@@ -12,7 +12,30 @@ public struct MarkdownPage: Equatable, Sendable {
 
 public enum MarkdownRenderer {
     public static func render(_ markdown: String) -> MarkdownPage {
-        MarkdownPage(htmlBody: fillEmptyImageAlt(renderHTML(markdown)))
+        MarkdownPage(htmlBody: fillEmptyImageAlt(sanitize(renderHTML(markdown))))
+    }
+
+    private static func sanitize(_ html: String) -> String {
+        var result = html
+        for tag in ["script", "iframe", "object", "embed"] {
+            let paired = "(?is)<\(tag)\\b[^>]*>.*?</\(tag)\\s*>"
+            result = result.replacingOccurrences(of: paired, with: "", options: .regularExpression)
+            let orphan = "(?i)<\(tag)\\b[^>]*/?>"
+            result = result.replacingOccurrences(of: orphan, with: "", options: .regularExpression)
+            let escaped = "(?is)&lt;\(tag)\\b.*?&lt;/\(tag)\\s*>"
+            result = result.replacingOccurrences(of: escaped, with: "", options: .regularExpression)
+        }
+        result = result.replacingOccurrences(
+            of: "(?i)\\s+on[a-z]+\\s*=\\s*(\"[^\"]*\"|'[^']*'|[^\\s>]+)",
+            with: "",
+            options: .regularExpression
+        )
+        result = result.replacingOccurrences(
+            of: "(?i)(href|src)\\s*=\\s*([\"'])\\s*javascript:[^\"']*\\2",
+            with: "$1=$2$2",
+            options: .regularExpression
+        )
+        return result
     }
 
     private static func renderHTML(_ markdown: String) -> String {

@@ -81,6 +81,25 @@ final class MarkdownPageTests: XCTestCase {
         XCTAssertTrue(html.contains("alt=\"fotos/planta.png\""))
     }
 
+    func testDangerousHTMLIsStripped() {
+        let html = MarkdownRenderer.render(
+            "<script>alert(1)</script><ScRiPt>alert(2)</ScRiPt><p onclick=\"alert(3)\">oi</p><img src=\"a.png\" onerror=\"alert(4)\"><iframe src=\"https://evil.test\"></iframe><object data=\"x\"></object><embed src=\"y\"></embed><a href=\"javascript:alert(5)\">x</a><strong>negrito</strong>texto"
+        ).htmlBody
+        XCTAssertTrue(html.contains("oi"))
+        XCTAssertTrue(html.contains("negrito"))
+        XCTAssertTrue(html.contains("texto"))
+        XCTAssertTrue(html.contains("a.png"))
+        XCTAssertFalse(html.lowercased().contains("<script"))
+        XCTAssertFalse(html.contains("alert(1)"))
+        XCTAssertFalse(html.contains("alert(2)"))
+        XCTAssertFalse(html.contains("onclick"))
+        XCTAssertFalse(html.contains("onerror"))
+        XCTAssertFalse(html.lowercased().contains("<iframe"))
+        XCTAssertFalse(html.lowercased().contains("<object"))
+        XCTAssertFalse(html.lowercased().contains("<embed"))
+        XCTAssertFalse(html.lowercased().contains("javascript:"))
+    }
+
     func testThousandsOfLinesStillRenderTheEnd() {
         var lines = Array(repeating: "linha", count: 5000)
         lines.append("## Fim")
