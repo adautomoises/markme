@@ -423,8 +423,9 @@ struct ReaderView: View {
         let language = languageCode
         let highlighter = HighlighterLibrary.script
         let mermaid = PageShell.containsMermaidFence(text) ? MermaidLibrary.script : ""
+        let baseDirectory = fileURL?.deletingLastPathComponent()
         let rendered = await Task.detached(priority: .userInitiated) {
-            let body = MarkdownRenderer.render(text).htmlBody
+            let body = MarkdownRenderer.render(text, baseDirectory: baseDirectory, languageCode: language).htmlBody
             let spans = baseline.map { ChangeReview.spans(from: $0, to: text) } ?? []
             let marked = ChangeReview.annotate(
                 html: body,

@@ -15,6 +15,10 @@ final class LinkActionTests: XCTestCase {
         XCTAssertEqual(LinkResolver.resolve(href: "a.mdwn", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notes/a.mdwn")))
         XCTAssertEqual(LinkResolver.resolve(href: "mailto:a@b.c", baseDirectory: base), .ignore)
         XCTAssertEqual(LinkResolver.resolve(href: "javascript:alert(1)", baseDirectory: base), .ignore)
+        XCTAssertEqual(
+            LinkResolver.resolve(href: "my%20plan.md", baseDirectory: base),
+            .markdownFile(URL(fileURLWithPath: "/tmp/notes/my plan.md"))
+        )
     }
 
     func testOnlyTheInitialDocumentLoadIsAllowed() {

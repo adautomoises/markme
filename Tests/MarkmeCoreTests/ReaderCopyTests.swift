@@ -41,5 +41,12 @@ final class ReaderCopyTests: XCTestCase {
         XCTAssertEqual(ReaderCopy.changePosition(current: 2, total: 5, languageCode: "en"), "2 of 5")
         XCTAssertEqual(ReaderCopy.string(.copyLocation, languageCode: "pt-BR"), "Copiar localização")
         XCTAssertEqual(ReaderCopy.string(.copyLocation, languageCode: "en"), "Copy Location")
+        XCTAssertEqual(ReaderCopy.string(.alertNote, languageCode: "pt-BR"), "Nota")
+        XCTAssertEqual(ReaderCopy.string(.alertTip, languageCode: "pt"), "Dica")
+        XCTAssertEqual(ReaderCopy.string(.alertImportant, languageCode: "pt-BR"), "Importante")
+        XCTAssertEqual(ReaderCopy.string(.alertWarning, languageCode: "pt-BR"), "Aviso")
+        XCTAssertEqual(ReaderCopy.string(.alertCaution, languageCode: "pt-BR"), "Cuidado")
+        XCTAssertEqual(ReaderCopy.string(.alertNote, languageCode: "en"), "Note")
+        XCTAssertEqual(ReaderCopy.string(.alertCaution, languageCode: "en"), "Caution")
     }
 }

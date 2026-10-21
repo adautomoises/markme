@@ -13,6 +13,7 @@ These overlap Nimbalyst and stay as they are.
 - The formatted page is the default. Text and side by side are one menu away.
 - The file reloads when it changes on disk. The reading position is kept. New lines are marked, a short marker shows where text was removed, and a bar steps through those marks. Seen clears them. The file is not rewritten.
 - Copy Location puts `path:line` on the clipboard. A selection uses that line. A caret uses the heading above it. Inside a git checkout the path is relative to the checkout root. Nothing is launched.
+- A GitHub alert shows its label. YAML at the top of the file shows title and status on the page. A wikilink opens a Markdown file in the same folder or one folder down.
 - GitHub-flavored Markdown: tables, task lists, strikethrough, footnotes, autolinks.
 - A `mermaid` fence becomes a diagram. Other fences are colored, including Gherkin, Dart, Flutter, and Kotlin.
 - A relative link to another Markdown file opens in markme. A web link opens in the browser.
@@ -43,13 +44,7 @@ Shipped. The behavior is described under [Already in the app](#already-in-the-ap
 
 ### 3. Render the Markdown agents already write
 
-Three syntaxes show up constantly in agent output. Each one is still a Markdown file another viewer can open.
-
-- GitHub alerts: a blockquote that starts with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`, or `[!CAUTION]`. The page shows the label and a distinct block. The source stays a blockquote.
-- YAML front matter. Page mode shows the title and a status line when those fields exist, and hides the raw block. Text mode still shows the YAML. Unknown fields stay in the source only. There is no database of documents.
-- Wikilinks written as `[[name]]` or `[[name|label]]`. A match opens that Markdown file in a new window, the same way a relative link does. The search is the file's folder and one level of children, by file name, case-insensitive. No match stays ordinary text. There is no vault index and no backlink panel.
-
-Raw HTML stays stripped, as it is now. Agents are asked to use Markdown instead.
+Shipped. The behavior is described under [Already in the app](#already-in-the-app). Raw HTML stays stripped.
 
 ### 4. A short contract agents can be pointed at
 
