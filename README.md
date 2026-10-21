@@ -51,6 +51,8 @@ The files in `Fixtures/` are made-up notes for opening the viewer.
 
 markme stays a viewer. [docs/BACKLOG.md](docs/BACKLOG.md) is the prioritized list of ideas worth taking from [Nimbalyst](https://github.com/nimbalyst/nimbalyst): show an agent's edit on the page, copy a file location back to the agent, and render the Markdown those tools already write. Sessions, git, and editing stay out.
 
+The contract for a note written for this viewer is [What to tell an agent](docs/BACKLOG.md#what-to-tell-an-agent).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). The test status is on the [CI workflow](https://github.com/vlrod/markme/actions/workflows/ci.yml). Agents working in this repository should read [AGENTS.md](AGENTS.md).
