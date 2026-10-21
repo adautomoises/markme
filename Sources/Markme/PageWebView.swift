@@ -12,6 +12,8 @@ struct PageWebView: NSViewRepresentable {
     let zoom: Double
     let presenting: Bool
     let slideIndex: Int
+    let changeCursor: Int?
+    let changeScrollToken: Int
     var onSlide: (Int) -> Void
     var onLink: (URL) -> Void
     var onVisibleLine: (Int) -> Void
@@ -45,6 +47,15 @@ struct PageWebView: NSViewRepresentable {
         context.coordinator.slideIndex = slideIndex
         if presentationChanged {
             context.coordinator.applyPresentation(in: view)
+        }
+        if context.coordinator.lastChangeToken != changeScrollToken {
+            context.coordinator.lastChangeToken = changeScrollToken
+            if changeScrollToken > 0, let changeCursor {
+                view.evaluateJavaScript(
+                    "window.markmeShowChange && window.markmeShowChange(\(changeCursor))",
+                    completionHandler: nil
+                )
+            }
         }
         if context.coordinator.lastHTML != html || context.coordinator.lastBase != baseURL {
             context.coordinator.lastHTML = html
@@ -84,6 +95,7 @@ struct PageWebView: NSViewRepresentable {
         var pageZoom = 1.0
         var presenting = false
         var slideIndex = 0
+        var lastChangeToken = 0
 
         func applyPresentation(in webView: WKWebView) {
             let flag = presenting ? "true" : "false"

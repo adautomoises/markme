@@ -16,6 +16,9 @@ public enum CopyKey: String, Sendable {
     case zoomIn
     case zoomOut
     case actualSize
+    case changesSeen
+    case changesPrevious
+    case changesNext
 }
 
 public enum ReaderCopy {
@@ -50,6 +53,22 @@ public enum ReaderCopy {
         case .zoomIn: return portuguese ? "Aumentar" : "Zoom In"
         case .zoomOut: return portuguese ? "Diminuir" : "Zoom Out"
         case .actualSize: return portuguese ? "Tamanho real" : "Actual Size"
+        case .changesSeen: return portuguese ? "Visto" : "Seen"
+        case .changesPrevious: return portuguese ? "Mudança anterior" : "Previous change"
+        case .changesNext: return portuguese ? "Próxima mudança" : "Next change"
         }
+    }
+
+    public static func linesRemoved(_ count: Int, languageCode: String) -> String {
+        let portuguese = languageCode.lowercased().hasPrefix("pt")
+        if count == 1 {
+            return portuguese ? "1 linha removida" : "1 line removed"
+        }
+        return portuguese ? "\(count) linhas removidas" : "\(count) lines removed"
+    }
+
+    public static func changePosition(current: Int, total: Int, languageCode: String) -> String {
+        let portuguese = languageCode.lowercased().hasPrefix("pt")
+        return portuguese ? "\(current) de \(total)" : "\(current) of \(total)"
     }
 }

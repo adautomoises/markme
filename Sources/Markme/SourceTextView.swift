@@ -7,6 +7,9 @@ struct SourceTextView: NSViewRepresentable {
     let findQuery: String
     let scrollToLine: Int?
     let zoom: Double
+    let changes: [ChangeSpan]
+    let changeCursor: Int?
+    let changeScrollToken: Int
     var onVisibleLine: (Int) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -89,6 +92,7 @@ struct SourceTextView: NSViewRepresentable {
             context.coordinator.lastScroll = scrollToLine
             context.coordinator.scroll(to: scrollToLine)
         }
+        context.coordinator.applyChanges(changes, cursor: changeCursor, token: changeScrollToken)
     }
 
     final class Coordinator: NSObject {
@@ -98,6 +102,10 @@ struct SourceTextView: NSViewRepresentable {
         var lastFind = ""
         var lastScroll: Int?
         var lastZoom = 1.0
+        var lastChanges: [ChangeSpan] = []
+        var lastChangeCursor: Int?
+        var lastChangeToken = 0
+        var lastHighlighted = ""
 
         init(onVisibleLine: @escaping (Int) -> Void) {
             self.onVisibleLine = onVisibleLine
@@ -108,6 +116,31 @@ struct SourceTextView: NSViewRepresentable {
             ruler?.needsDisplay = true
             guard let textView else { return }
             onVisibleLine(Self.visibleLine(in: textView))
+        }
+
+        @MainActor
+        func applyChanges(_ changes: [ChangeSpan], cursor: Int?, token: Int) {
+            guard let textView, let layout = textView.layoutManager else { return }
+            if textView.string != lastHighlighted || changes != lastChanges || cursor != lastChangeCursor {
+                lastHighlighted = textView.string
+                lastChanges = changes
+                lastChangeCursor = cursor
+                let full = NSRange(location: 0, length: (textView.string as NSString).length)
+                layout.removeTemporaryAttribute(.backgroundColor, forCharacterRange: full)
+                for (index, span) in changes.enumerated() {
+                    guard case .added(let lines) = span.kind,
+                          let range = ChangeReview.utf16Range(of: lines, in: textView.string) else { continue }
+                    layout.addTemporaryAttribute(
+                        .backgroundColor,
+                        value: index == cursor ? Self.selectedColor : Self.addedColor,
+                        forCharacterRange: range
+                    )
+                }
+            }
+            guard token != lastChangeToken else { return }
+            lastChangeToken = token
+            guard token > 0, let cursor, changes.indices.contains(cursor) else { return }
+            scroll(to: changes[cursor].focusLine)
         }
 
         @MainActor
@@ -133,6 +166,20 @@ struct SourceTextView: NSViewRepresentable {
             let ns = textView.string as NSString
             let end = min(char, ns.length)
             return ns.substring(to: end).components(separatedBy: "\n").count
+        }
+
+        static let addedColor = NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return dark
+                ? NSColor(srgbRed: 0.25, green: 0.62, blue: 0.36, alpha: 0.28)
+                : NSColor(srgbRed: 0.18, green: 0.65, blue: 0.32, alpha: 0.18)
+        }
+
+        static let selectedColor = NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return dark
+                ? NSColor(srgbRed: 0.25, green: 0.62, blue: 0.36, alpha: 0.45)
+                : NSColor(srgbRed: 0.18, green: 0.65, blue: 0.32, alpha: 0.32)
         }
     }
 }

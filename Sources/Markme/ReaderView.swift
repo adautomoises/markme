@@ -23,6 +23,7 @@ struct ReaderView: View {
     @State private var hideToolbar = false
     @State private var toolbarNeedsRestore = false
     @State private var modeToolbarMounted = true
+    @State private var changeScrollToken = 0
     @FocusState private var findFieldFocused: Bool
     @StateObject private var watcher = FileWatcher()
 
@@ -38,6 +39,10 @@ struct ReaderView: View {
         VStack(spacing: 0) {
             if model.showsBanner, model.mode != .presentation {
                 banner
+                Divider()
+            }
+            if showsChangeBar {
+                changeBar
                 Divider()
             }
             if findPresented, model.mode != .presentation {
@@ -123,7 +128,7 @@ struct ReaderView: View {
             findFieldFocused = shown
         }
         .onDisappear { watcher.stop() }
-        .task(id: model.text) { await renderPage() }
+        .task(id: model.changeRevision) { await renderPage() }
     }
 
     @ViewBuilder
@@ -164,6 +169,8 @@ struct ReaderView: View {
             zoom: zoom.factor,
             presenting: model.mode == .presentation,
             slideIndex: slideIndex,
+            changeCursor: model.changeCursor,
+            changeScrollToken: changeScrollToken,
             onSlide: { slideIndex = $0 },
             onLink: open,
             onVisibleLine: pageScrolled
@@ -176,6 +183,9 @@ struct ReaderView: View {
             findQuery: findPresented ? findQuery : "",
             scrollToLine: sourceScrollLine,
             zoom: zoom.factor,
+            changes: model.changes,
+            changeCursor: model.changeCursor,
+            changeScrollToken: changeScrollToken,
             onVisibleLine: sourceScrolled
         )
     }
@@ -220,6 +230,61 @@ struct ReaderView: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
         .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var showsChangeBar: Bool {
+        model.failure == nil && model.mode != .presentation && !model.changes.isEmpty
+    }
+
+    private var changeBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                stepChange(-1)
+            } label: {
+                Image(systemName: "chevron.up")
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help(copy(.changesPrevious))
+            .accessibilityLabel(copy(.changesPrevious))
+            Text(ReaderCopy.changePosition(
+                current: (model.changeCursor ?? 0) + 1,
+                total: model.changes.count,
+                languageCode: languageCode
+            ))
+            .font(.callout.monospacedDigit())
+            if let removed = currentRemovalCount {
+                Text(ReaderCopy.linesRemoved(removed, languageCode: languageCode))
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Button {
+                stepChange(1)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .frame(width: 22, height: 22)
+            }
+            .buttonStyle(.plain)
+            .help(copy(.changesNext))
+            .accessibilityLabel(copy(.changesNext))
+            Spacer()
+            Button(copy(.changesSeen)) { model.dismissChanges() }
+                .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var currentRemovalCount: Int? {
+        guard let cursor = model.changeCursor, model.changes.indices.contains(cursor) else { return nil }
+        guard case .removed(_, let count) = model.changes[cursor].kind else { return nil }
+        return count
+    }
+
+    private func stepChange(_ delta: Int) {
+        model.stepChange(by: delta)
+        changeScrollToken += 1
     }
 
     private var findBar: some View {
@@ -289,14 +354,30 @@ struct ReaderView: View {
     private func renderPage() async {
         renderGeneration += 1
         let generation = renderGeneration
+        let revision = model.changeRevision
+        let baseline = model.changeBaseline
         let text = model.text
+        let language = languageCode
         let highlighter = HighlighterLibrary.script
         let mermaid = PageShell.containsMermaidFence(text) ? MermaidLibrary.script : ""
-        let html = await Task.detached(priority: .userInitiated) {
-            PageShell.html(body: MarkdownRenderer.render(text).htmlBody, highlighter: highlighter, mermaid: mermaid)
+        let rendered = await Task.detached(priority: .userInitiated) {
+            let body = MarkdownRenderer.render(text).htmlBody
+            let spans = baseline.map { ChangeReview.spans(from: $0, to: text) } ?? []
+            let marked = ChangeReview.annotate(
+                html: body,
+                spans: spans,
+                selected: spans.isEmpty ? nil : 0,
+                removedLabel: { ReaderCopy.linesRemoved($0, languageCode: language) }
+            )
+            let html = PageShell.html(body: marked, highlighter: highlighter, mermaid: mermaid)
+            return (html: html, spans: spans)
         }.value
-        guard generation == renderGeneration else { return }
-        pageHTML = html
+        guard generation == renderGeneration, model.changeRevision == revision else { return }
+        if baseline != nil {
+            model.adoptChanges(rendered.spans, revision: revision)
+            changeScrollToken = 0
+        }
+        pageHTML = rendered.html
     }
 
     private var ownsMenuAction: Bool {

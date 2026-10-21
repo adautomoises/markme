@@ -36,6 +36,9 @@ public enum PageShell {
         body.presenting .slide-count { position: fixed; right: 28px; bottom: 22px; color: #86868b; font-size: 13px; font-variant-numeric: tabular-nums; }
         .mermaid { margin: 1.25rem 0; overflow-x: auto; }
         .mermaid svg { max-width: 100%; height: auto; }
+        .change-added { background: rgba(46, 160, 67, 0.16); border-radius: 8px; }
+        .change-removed { margin: 0.8rem 0; padding: 4px 10px; border-radius: 8px; background: rgba(207, 34, 46, 0.1); color: #a40e26; font-size: 13px; }
+        .change-current { box-shadow: inset 0 0 0 2px #0969da; }
         a { color: -webkit-link; }
         blockquote { margin-left: 0; padding-left: 14px; border-left: 3px solid #d2d2d7; color: #424245; }
         table { border-collapse: collapse; width: 100%; }
@@ -55,6 +58,9 @@ public enum PageShell {
           .hljs-number, .hljs-literal { color: #d0bf69; }
           .hljs-meta { color: #e3b341; }
           body.presenting .slide-count { color: #98989d; }
+          .change-added { background: rgba(63, 185, 80, 0.18); }
+          .change-removed { background: rgba(248, 81, 73, 0.15); color: #ff7b72; }
+          .change-current { box-shadow: inset 0 0 0 2px #58a6ff; }
           .language-gherkin .hljs-keyword, .language-cucumber .hljs-keyword, .language-feature .hljs-keyword { color: #ff7b72; }
           .language-gherkin .hljs-symbol, .language-cucumber .hljs-symbol, .language-feature .hljs-symbol { color: #79c0ff; }
           a { color: -webkit-link; }
@@ -134,6 +140,14 @@ public enum PageShell {
           var counter = document.querySelector(".slide-count");
           if (counter) counter.remove();
         };
+        window.markmeShowChange = function (index) {
+          var marked = document.querySelectorAll(".change-current");
+          for (var i = 0; i < marked.length; i++) marked[i].classList.remove("change-current");
+          var match = document.querySelector('[data-change="' + String(index | 0) + '"]');
+          if (!match) return;
+          match.classList.add("change-current");
+          match.scrollIntoView({ block: "center" });
+        };
         window.markmeSlide = function (index) {
           var slides = document.querySelectorAll("article > section.slide");
           if (!slides.length) return 0;
@@ -198,6 +212,14 @@ public enum PageShell {
             if (!pre) return;
             var div = document.createElement("div");
             div.className = "mermaid";
+            if (pre.classList.contains("change-added") || node.classList.contains("change-added")) {
+              div.classList.add("change-added");
+            }
+            if (pre.classList.contains("change-current") || node.classList.contains("change-current")) {
+              div.classList.add("change-current");
+            }
+            var change = pre.getAttribute("data-change") || node.getAttribute("data-change");
+            if (change) div.setAttribute("data-change", change);
             div.textContent = node.textContent || "";
             pre.replaceWith(div);
           });

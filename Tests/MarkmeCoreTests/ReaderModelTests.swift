@@ -41,6 +41,50 @@ final class ReaderModelTests: XCTestCase {
         XCTAssertEqual(model.failureDetail, "Permission denied")
     }
 
+    func testReloadArmsAReviewWithoutMarkingUntilTheDiffIsReady() {
+        var model = ReaderModel(fileName: "a.md", data: Data("before".utf8), bannerDismissed: true)
+        XCTAssertNil(model.changeBaseline)
+        XCTAssertEqual(model.changeRevision, 0)
+        model.reload(data: Data("after".utf8))
+        XCTAssertEqual(model.changeBaseline, "before")
+        XCTAssertEqual(model.changeRevision, 1)
+        XCTAssertTrue(model.changes.isEmpty)
+        model.reload(data: Data("after".utf8))
+        XCTAssertEqual(model.changeRevision, 1)
+        model.reload(data: Data("later".utf8))
+        XCTAssertEqual(model.changeBaseline, "before")
+        XCTAssertEqual(model.text, "later")
+        XCTAssertEqual(model.changeRevision, 2)
+        let spans = [
+            ChangeSpan(kind: .removed(afterLine: 0, count: 1)),
+            ChangeSpan(kind: .added(1...1))
+        ]
+        model.adoptChanges(spans, revision: 2)
+        XCTAssertEqual(model.changes, spans)
+        XCTAssertEqual(model.changeCursor, 0)
+        XCTAssertNil(model.changeBaseline)
+        model.stepChange(by: 1)
+        XCTAssertEqual(model.changeCursor, 1)
+        model.stepChange(by: 1)
+        XCTAssertEqual(model.changeCursor, 0)
+        model.stepChange(by: -1)
+        XCTAssertEqual(model.changeCursor, 1)
+        model.dismissChanges()
+        XCTAssertTrue(model.changes.isEmpty)
+        XCTAssertNil(model.changeCursor)
+        XCTAssertEqual(model.changeRevision, 3)
+        model.adoptChanges(spans, revision: 2)
+        XCTAssertTrue(model.changes.isEmpty)
+    }
+
+    func testFailedReloadDoesNotArmAReview() {
+        var model = ReaderModel(fileName: "a.md", data: Data("before".utf8), bannerDismissed: true)
+        model.reload(data: nil, failureDetail: "Permission denied")
+        XCTAssertNil(model.changeBaseline)
+        XCTAssertEqual(model.changeRevision, 0)
+        XCTAssertEqual(model.text, "before")
+    }
+
     func testReloadOfInvalidUTF8KeepsTheText() {
         var model = ReaderModel(fileName: "a.md", data: Data("still here".utf8), bannerDismissed: true)
         model.reload(data: Data([0xFF, 0xFE]))

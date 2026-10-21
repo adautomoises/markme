@@ -29,5 +29,15 @@ final class ReaderCopyTests: XCTestCase {
         XCTAssertEqual(ReaderCopy.string(.bannerQuestion, languageCode: "en"), "Open Markdown files in this viewer?")
         XCTAssertEqual(ReaderCopy.string(.notUTF8, languageCode: "en"), "This file is not UTF-8 text.")
         XCTAssertEqual(ReaderCopy.string(.unreadable, languageCode: "en"), "Could not read this file.")
+        XCTAssertEqual(ReaderCopy.string(.changesSeen, languageCode: "pt-BR"), "Visto")
+        XCTAssertEqual(ReaderCopy.string(.changesSeen, languageCode: "en"), "Seen")
+        XCTAssertEqual(ReaderCopy.string(.changesPrevious, languageCode: "pt-BR"), "Mudança anterior")
+        XCTAssertEqual(ReaderCopy.string(.changesNext, languageCode: "en"), "Next change")
+        XCTAssertEqual(ReaderCopy.linesRemoved(1, languageCode: "pt-BR"), "1 linha removida")
+        XCTAssertEqual(ReaderCopy.linesRemoved(3, languageCode: "pt"), "3 linhas removidas")
+        XCTAssertEqual(ReaderCopy.linesRemoved(1, languageCode: "en"), "1 line removed")
+        XCTAssertEqual(ReaderCopy.linesRemoved(4, languageCode: "en"), "4 lines removed")
+        XCTAssertEqual(ReaderCopy.changePosition(current: 2, total: 5, languageCode: "pt-BR"), "2 de 5")
+        XCTAssertEqual(ReaderCopy.changePosition(current: 2, total: 5, languageCode: "en"), "2 of 5")
     }
 }

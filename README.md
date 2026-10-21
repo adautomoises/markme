@@ -25,6 +25,8 @@ In presentation, each `---` in the Markdown starts a slide. Right arrow, space, 
 
 Zoom is in the same menu: Zoom In (⌘+), Zoom Out (⌘−), and Actual Size (⌘0). Command and the mouse wheel use the same zoom.
 
+When the file changes while the window is open, the new lines are marked and a bar steps through them. Seen clears the marks. The file is not edited.
+
 The page colors code, including Dart, Flutter, and Kotlin. A `mermaid` fence becomes a diagram. A Gherkin fence colors the tags and the step words.
 
 Extensions: `md`, `markdown`, `mdown`, `mkd`, `mdwn`. UTF-8 only. One file, one window.
