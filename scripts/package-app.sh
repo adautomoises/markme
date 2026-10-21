@@ -10,6 +10,7 @@ cp App/Info.plist "$APP/Contents/Info.plist"
 cp App/Resources/highlight.min.js "$APP/Contents/Resources/highlight.min.js"
 cp App/Resources/dart.js "$APP/Contents/Resources/dart.js"
 cp App/Resources/mermaid.min.js "$APP/Contents/Resources/mermaid.min.js"
+cp App/Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 codesign --force --deep --sign - "$APP"
 
 # The Finder app is /Applications/Markme.app. The copy in this folder is only
