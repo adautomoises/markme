@@ -50,17 +50,24 @@ struct PageWebView: NSViewRepresentable {
         }
         if context.coordinator.lastChangeToken != changeScrollToken {
             context.coordinator.lastChangeToken = changeScrollToken
-            if changeScrollToken > 0, let changeCursor {
-                view.evaluateJavaScript(
-                    "window.markmeShowChange && window.markmeShowChange(\(changeCursor))",
-                    completionHandler: nil
-                )
-            }
+            context.coordinator.pendingChangeToken = changeScrollToken
+            context.coordinator.pendingChangeCursor = changeScrollToken > 0 ? changeCursor : nil
         }
-        if context.coordinator.lastHTML != html || context.coordinator.lastBase != baseURL {
+        let htmlChanged = context.coordinator.lastHTML != html || context.coordinator.lastBase != baseURL
+        if htmlChanged {
             context.coordinator.lastHTML = html
             context.coordinator.lastBase = baseURL
+            context.coordinator.awaitingLoad = true
             view.loadHTMLString(html, baseURL: baseURL)
+        } else if !context.coordinator.awaitingLoad,
+                  context.coordinator.pendingChangeToken > 0,
+                  let changeCursor = context.coordinator.pendingChangeCursor {
+            context.coordinator.pendingChangeCursor = nil
+            context.coordinator.pendingChangeToken = 0
+            view.evaluateJavaScript(
+                "window.markmeShowChange && window.markmeShowChange(\(changeCursor))",
+                completionHandler: nil
+            )
         }
         if context.coordinator.lastFind != findQuery {
             context.coordinator.lastFind = findQuery
@@ -68,7 +75,9 @@ struct PageWebView: NSViewRepresentable {
             configuration.caseSensitive = false
             view.find(findQuery, configuration: configuration) { _ in }
         }
-        if let scrollToLine, context.coordinator.lastScroll != scrollToLine {
+        if let scrollToLine,
+           context.coordinator.pendingChangeToken == 0,
+           context.coordinator.lastScroll != scrollToLine {
             context.coordinator.lastScroll = scrollToLine
             view.evaluateJavaScript("window.markmeScrollToLine && window.markmeScrollToLine(\(scrollToLine))", completionHandler: nil)
         }
@@ -96,6 +105,9 @@ struct PageWebView: NSViewRepresentable {
         var presenting = false
         var slideIndex = 0
         var lastChangeToken = 0
+        var pendingChangeCursor: Int?
+        var pendingChangeToken = 0
+        var awaitingLoad = false
 
         func applyPresentation(in webView: WKWebView) {
             let flag = presenting ? "true" : "false"
@@ -138,11 +150,19 @@ struct PageWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            awaitingLoad = false
             webView.pageZoom = pageZoom
             applyPresentation(in: webView)
             webView.evaluateJavaScript(Self.scrollScript) { _, _ in
                 if let pending = self.pendingAnchor {
                     Self.scrollToAnchor(pending, in: webView)
+                } else if self.pendingChangeToken > 0, let cursor = self.pendingChangeCursor {
+                    self.pendingChangeCursor = nil
+                    self.pendingChangeToken = 0
+                    webView.evaluateJavaScript(
+                        "window.markmeShowChange && window.markmeShowChange(\(cursor))",
+                        completionHandler: nil
+                    )
                 } else if let line = self.lastReportedLine, line > 1 {
                     webView.evaluateJavaScript(
                         "window.markmeScrollToLine && window.markmeScrollToLine(\(line))",

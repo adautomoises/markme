@@ -77,6 +77,20 @@ final class ReaderModelTests: XCTestCase {
         XCTAssertTrue(model.changes.isEmpty)
     }
 
+    func testReloadClearsMarksFromThePreviousDiff() {
+        var model = ReaderModel(fileName: "a.md", data: Data("before".utf8), bannerDismissed: true)
+        model.reload(data: Data("after".utf8))
+        let spans = [ChangeSpan(kind: .added(1...1))]
+        model.adoptChanges(spans, revision: 1)
+        XCTAssertEqual(model.changes, spans)
+        model.reload(data: Data("later".utf8))
+        XCTAssertTrue(model.changes.isEmpty)
+        XCTAssertNil(model.changeCursor)
+        XCTAssertEqual(model.changeBaseline, "after")
+        XCTAssertEqual(model.text, "later")
+        XCTAssertEqual(model.changeRevision, 2)
+    }
+
     func testFailedReloadDoesNotArmAReview() {
         var model = ReaderModel(fileName: "a.md", data: Data("before".utf8), bannerDismissed: true)
         model.reload(data: nil, failureDetail: "Permission denied")

@@ -75,6 +75,113 @@ final class ChangeReviewTests: XCTestCase {
         XCTAssertEqual(ChangeReview.annotate(html: html, spans: [], selected: nil) { _ in "" }, html)
     }
 
+    func testAnnotateSkipsAParentWhenAChildCoversTheSameLine() {
+        let html = "<ul data-sourcepos=\"1:1-2:4\"><li data-sourcepos=\"1:1-1:4\">one</li><li data-sourcepos=\"2:1-2:4\">two</li></ul>"
+        let marked = ChangeReview.annotate(
+            html: html,
+            spans: [ChangeSpan(kind: .added(2...2))],
+            selected: 0
+        ) { _ in "" }
+        XCTAssertFalse(marked.contains("<ul data-sourcepos=\"1:1-2:4\" class=\"change-added\""), marked)
+        XCTAssertTrue(
+            marked.contains("<li data-sourcepos=\"2:1-2:4\" class=\"change-added change-current\" data-change=\"0\">"),
+            marked
+        )
+        XCTAssertEqual(marked.components(separatedBy: "change-added").count - 1, 1, marked)
+    }
+
+    func testTwoAddedLinesInsideAFenceEachGetAnAnchor() {
+        let html = "<pre data-sourcepos=\"1:1-5:3\"><code>alpha\nbeta\ngamma\n</code></pre>"
+        let spans = [
+            ChangeSpan(kind: .added(3...3)),
+            ChangeSpan(kind: .added(4...4))
+        ]
+        let marked = ChangeReview.annotate(html: html, spans: spans, selected: 1) { _ in "" }
+        XCTAssertFalse(marked.contains("<pre data-sourcepos=\"1:1-5:3\" class=\"change-added\""), marked)
+        XCTAssertTrue(marked.contains("data-change=\"0\""), marked)
+        XCTAssertTrue(marked.contains("data-change=\"1\""), marked)
+        XCTAssertTrue(marked.contains(">beta</span>"), marked)
+        XCTAssertTrue(marked.contains("change-current"), marked)
+        XCTAssertFalse(marked.contains(">alpha</span>"), marked)
+    }
+
+    func testListDeletionUsesAListItemInsideTheList() {
+        let before = "- one\n- two\n- three\n"
+        let after = "- one\n- three\n"
+        let marked = markedDiff(from: before, to: after)
+        XCTAssertTrue(marked.contains("<li class=\"change-removed"), marked)
+        let list = inside(marked, from: "<ul", to: "</ul>")
+        XCTAssertFalse(list.contains("<p class=\"change-removed"), marked)
+        XCTAssertTrue(list.contains("change-removed"), marked)
+    }
+
+    func testTableDeletionStaysOutsideTheTable() {
+        let before = "| a | b |\n| --- | --- |\n| c | d |\n| e | f |\n"
+        let after = "| a | b |\n| --- | --- |\n| e | f |\n"
+        let marked = markedDiff(from: before, to: after)
+        let table = inside(marked, from: "<table", to: "</table>")
+        XCTAssertFalse(table.contains("change-removed"), marked)
+        XCTAssertTrue(marked.contains("change-removed"), marked)
+    }
+
+    func testBlockquoteDeletionStaysInsideTheQuote() {
+        let before = "> one\n> two\n> three\n"
+        let after = "> one\n> three\n"
+        let marked = markedDiff(from: before, to: after)
+        let quote = inside(marked, from: "<blockquote", to: "</blockquote>")
+        XCTAssertTrue(quote.contains("change-removed"), marked)
+        XCTAssertFalse(quote.contains("<table"), marked)
+    }
+
+    func testFenceDeletionStaysOutsideTheFence() throws {
+        let before = "```\nalpha\nbeta\ngamma\n```\n"
+        let after = "```\nalpha\ngamma\n```\n"
+        let marked = markedDiff(from: before, to: after)
+        let fence = inside(marked, from: "<pre", to: "</pre>")
+        XCTAssertFalse(fence.contains("change-removed"), marked)
+        let close = try XCTUnwrap(marked.range(of: "</pre>"))
+        let pill = try XCTUnwrap(marked.range(of: "change-removed"))
+        XCTAssertGreaterThan(pill.lowerBound, close.lowerBound, marked)
+    }
+
+    func testAChangedListItemDoesNotMarkTheWholeList() {
+        var lines = (1...12).map { "- item \($0)" }
+        let before = lines.joined(separator: "\n") + "\n"
+        lines[8] = "- item 9 edited"
+        let after = lines.joined(separator: "\n") + "\n"
+        let marked = markedDiff(from: before, to: after)
+        XCTAssertFalse(openingTag(marked, "ul").contains("change-added"), marked)
+        XCTAssertEqual(marked.components(separatedBy: "change-added").count - 1, 1, marked)
+    }
+
+    func testAChangedTableCellDoesNotMarkTheWholeTable() {
+        let before = "| a | b |\n| --- | --- |\n| c | d |\n"
+        let after = "| a | b |\n| --- | --- |\n| c | EDITED |\n"
+        let marked = markedDiff(from: before, to: after)
+        XCTAssertFalse(openingTag(marked, "table").contains("change-added"), marked)
+        XCTAssertTrue(marked.contains("change-added"), marked)
+        XCTAssertFalse(openingTag(marked, "tr").contains("change-added"), marked)
+    }
+
+    private func markedDiff(from before: String, to after: String) -> String {
+        let spans = ChangeReview.spans(from: before, to: after)
+        let html = MarkdownRenderer.render(after).htmlBody
+        return ChangeReview.annotate(html: html, spans: spans, selected: spans.isEmpty ? nil : 0) { count in
+            "\(count) removed"
+        }
+    }
+
+    private func openingTag(_ html: String, _ name: String) -> String {
+        guard let start = html.range(of: "<\(name)") else { return "" }
+        guard let end = html[start.lowerBound...].firstIndex(of: ">") else { return "" }
+        return String(html[start.lowerBound...end])
+    }
+
+    private func inside(_ html: String, from startToken: String, to endToken: String) -> String {
+        guard let start = html.range(of: startToken), let end = html.range(of: endToken) else { return "" }
+        return String(html[start.lowerBound..<end.upperBound])
+    }
+
     func testRemovedLabelIsEscaped() {
         let html = "<p data-sourcepos=\"1:1-1:2\">Hi</p>"
         let marked = ChangeReview.annotate(

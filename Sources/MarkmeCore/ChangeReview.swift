@@ -102,8 +102,8 @@ public enum ChangeReview {
         return nil
     }
 
-    /// Marks added blocks and inserts a paragraph where lines were removed.
-    /// An empty span list returns `html` unchanged.
+    /// Marks the tightest block for each new line and inserts a marker where lines were removed.
+    /// An empty span list returns `html` unchanged. A fence gets one anchor per changed line.
     public static func annotate(
         html: String,
         spans: [ChangeSpan],
@@ -111,54 +111,94 @@ public enum ChangeReview {
         removedLabel: (Int) -> String
     ) -> String {
         guard !spans.isEmpty else { return html }
-        guard let regex = try? NSRegularExpression(
-            pattern: #"<[A-Za-z][^>]*data-sourcepos="(\d+):\d+-(\d+):\d+"[^>]*>"#
-        ) else { return html }
+        let hits = tagHits(in: html)
+        var edits: [Edit] = []
 
-        let ns = html as NSString
-        let matches = regex.matches(in: html, range: NSRange(location: 0, length: ns.length))
-        let hits: [TagHit] = matches.compactMap { match in
-            guard let range = Range(match.range, in: html),
-                  let startRange = Range(match.range(at: 1), in: html),
-                  let endRange = Range(match.range(at: 2), in: html),
-                  let start = Int(html[startRange]),
-                  let end = Int(html[endRange]) else { return nil }
-            return TagHit(range: range, startLine: start, endLine: end)
-        }
-
-        var insertions: [Int: [Int]] = [:]
-        var trailing: [Int] = []
         for (spanIndex, span) in spans.enumerated() {
-            guard case .removed(let after, _) = span.kind else { continue }
-            if let hitIndex = hits.firstIndex(where: { $0.startLine > after }) {
-                insertions[hitIndex, default: []].append(spanIndex)
-            } else {
-                trailing.append(spanIndex)
-            }
+            guard case .removed = span.kind else { continue }
+            let place = removalPlacement(of: span, hits: hits, html: html)
+            edits.append(Edit(
+                start: place.index,
+                end: place.index,
+                text: marker(
+                    spanIndex,
+                    spans: spans,
+                    selected: selected,
+                    removedLabel: removedLabel,
+                    element: place.element
+                ),
+                order: spanIndex
+            ))
         }
 
-        var result = ""
-        var cursor = html.startIndex
-        for (hitIndex, hit) in hits.enumerated() {
-            result += html[cursor..<hit.range.lowerBound]
-            for spanIndex in insertions[hitIndex] ?? [] {
-                result += marker(spanIndex, spans: spans, selected: selected, removedLabel: removedLabel)
+        var wrappedFences = Set<Int>()
+        for hitIndex in hits.indices where hits[hitIndex].name == "pre" {
+            let added = tightAddedIndexes(hitIndex: hitIndex, hits: hits, spans: spans)
+            guard !added.isEmpty, let body = fenceBody(in: html, pre: hits[hitIndex]) else { continue }
+            let wrapped = wrapFenceLines(
+                body.text,
+                contentStart: body.contentStart,
+                spans: spans,
+                selected: selected
+            )
+            guard wrapped.didMark else { continue }
+            edits.append(Edit(
+                start: body.range.lowerBound,
+                end: body.range.upperBound,
+                text: wrapped.text,
+                order: 0
+            ))
+            wrappedFences.insert(hitIndex)
+        }
+
+        for hitIndex in hits.indices where !wrappedFences.contains(hitIndex) {
+            let added = tightAddedIndexes(hitIndex: hitIndex, hits: hits, spans: spans)
+            guard !added.isEmpty else { continue }
+            var classes = ["change-added"]
+            if let selected, added.contains(selected), firstTightHit(for: selected, hits: hits, spans: spans) == hitIndex {
+                classes.append("change-current")
             }
-            result += opening(String(html[hit.range]), hit: hit, hitIndex: hitIndex, hits: hits, spans: spans, selected: selected)
-            cursor = hit.range.upperBound
+            edits.append(Edit(
+                start: hits[hitIndex].range.lowerBound,
+                end: hits[hitIndex].range.upperBound,
+                text: tagByAdding(classes: classes, changes: added, to: String(html[hits[hitIndex].range])),
+                order: 10_000 + hitIndex
+            ))
         }
-        result += html[cursor...]
-        for spanIndex in trailing {
-            result += marker(spanIndex, spans: spans, selected: selected, removedLabel: removedLabel)
-        }
-        return result
+
+        return apply(edits, to: html)
     }
 
     private struct TagHit {
         var range: Range<String.Index>
         var startLine: Int
         var endLine: Int
+        var name: String
     }
+
+    private struct Edit {
+        var start: String.Index
+        var end: String.Index
+        var text: String
+        var order: Int
+    }
+
+    private struct RemovalPlace {
+        var index: String.Index
+        var element: String
+    }
+
+    private struct FenceBody {
+        var range: Range<String.Index>
+        var text: String
+        var contentStart: Int
+    }
+
+    /// Table and fence markup cannot hold the removal pill. It goes after that whole block.
+    private static let blockedNames: Set<String> = [
+        "table", "thead", "tbody", "tfoot", "tr", "td", "th", "pre", "code"
+    ]
+    private static let voidNames: Set<String> = ["br", "hr", "img", "input"]
 
     private static func lines(_ text: String) -> [String] {
         let normalized = text
@@ -222,42 +262,226 @@ public enum ChangeReview {
         lines.lowerBound <= hit.endLine && hit.startLine <= lines.upperBound
     }
 
-    private static func firstHit(overlapping spanIndex: Int, spans: [ChangeSpan], hits: [TagHit]) -> Int? {
-        guard case .added(let lines) = spans[spanIndex].kind else { return nil }
-        return hits.firstIndex { overlaps($0, lines: lines) }
+    private static func tagHits(in html: String) -> [TagHit] {
+        guard let regex = try? NSRegularExpression(
+            pattern: #"<([A-Za-z][A-Za-z0-9]*)[^>]*data-sourcepos="(\d+):\d+-(\d+):\d+"[^>]*>"#
+        ) else { return [] }
+        let ns = html as NSString
+        return regex.matches(in: html, range: NSRange(location: 0, length: ns.length)).compactMap { match in
+            guard let range = Range(match.range, in: html),
+                  let nameRange = Range(match.range(at: 1), in: html),
+                  let startRange = Range(match.range(at: 2), in: html),
+                  let endRange = Range(match.range(at: 3), in: html),
+                  let start = Int(html[startRange]),
+                  let end = Int(html[endRange]) else { return nil }
+            return TagHit(
+                range: range,
+                startLine: start,
+                endLine: end,
+                name: String(html[nameRange]).lowercased()
+            )
+        }
     }
 
-    private static func opening(
-        _ tag: String,
-        hit: TagHit,
-        hitIndex: Int,
-        hits: [TagHit],
-        spans: [ChangeSpan],
-        selected: Int?
-    ) -> String {
-        let overlapping = spans.enumerated().compactMap { index, span -> Int? in
-            guard case .added(let lines) = span.kind, overlaps(hit, lines: lines) else { return nil }
+    private static func removalPlacement(of span: ChangeSpan, hits: [TagHit], html: String) -> RemovalPlace {
+        let after: Int
+        if case .removed(let afterLine, _) = span.kind {
+            after = afterLine
+        } else {
+            after = 0
+        }
+        if after <= 0 {
+            return RemovalPlace(index: html.startIndex, element: "p")
+        }
+        if let tight = tightestIndex(containing: after, hits: hits) {
+            let target = blockedRoot(of: tight, hits: hits) ?? tight
+            let element = target == tight && hits[tight].name == "li" ? "li" : "p"
+            return RemovalPlace(
+                index: endOfElement(named: hits[target].name, opening: hits[target].range, in: html),
+                element: element
+            )
+        }
+        if let next = hits.indices.first(where: { isTopLevel($0, hits: hits) && hits[$0].startLine > after }) {
+            return RemovalPlace(index: hits[next].range.lowerBound, element: "p")
+        }
+        return RemovalPlace(index: html.endIndex, element: "p")
+    }
+
+    /// The table or fence that contains `hitIndex`, when the pill cannot sit inside it.
+    private static func blockedRoot(of hitIndex: Int, hits: [TagHit]) -> Int? {
+        let involved = hits.enumerated().filter { index, hit in
+            blockedNames.contains(hit.name) && (index == hitIndex || contains(hit, hits[hitIndex]))
+        }
+        return involved.max { lhs, rhs in
+            let left = lhs.element.endLine - lhs.element.startLine
+            let right = rhs.element.endLine - rhs.element.startLine
+            if left != right { return left < right }
+            return lhs.offset > rhs.offset
+        }?.offset
+    }
+
+    private static func contains(_ outer: TagHit, _ inner: TagHit) -> Bool {
+        let covers = outer.startLine <= inner.startLine && outer.endLine >= inner.endLine
+        let larger = outer.startLine < inner.startLine || outer.endLine > inner.endLine
+        let earlier = outer.range.lowerBound < inner.range.lowerBound
+        return covers && (larger || (earlier && outer.startLine == inner.startLine && outer.endLine == inner.endLine))
+    }
+
+    private static func isTighter(_ inner: TagHit, than outer: TagHit) -> Bool {
+        let inside = inner.startLine >= outer.startLine && inner.endLine <= outer.endLine
+        guard inside else { return false }
+        if inner.startLine > outer.startLine || inner.endLine < outer.endLine { return true }
+        return inner.range.lowerBound > outer.range.lowerBound
+    }
+
+    private static func tightestIndex(containing line: Int, hits: [TagHit]) -> Int? {
+        var best: Int?
+        for index in hits.indices {
+            let hit = hits[index]
+            guard line >= hit.startLine, line <= hit.endLine else { continue }
+            if let best, !isTighter(hit, than: hits[best]) { continue }
+            best = index
+        }
+        return best
+    }
+
+    private static func isTopLevel(_ index: Int, hits: [TagHit]) -> Bool {
+        !hits.enumerated().contains { other, hit in
+            other != index && contains(hit, hits[index])
+        }
+    }
+
+    private static func isTightest(_ hitIndex: Int, for lines: ClosedRange<Int>, hits: [TagHit]) -> Bool {
+        let hit = hits[hitIndex]
+        guard overlaps(hit, lines: lines) else { return false }
+        for otherIndex in hits.indices where otherIndex != hitIndex {
+            guard overlaps(hits[otherIndex], lines: lines) else { continue }
+            if isTighter(hits[otherIndex], than: hit) { return false }
+        }
+        return true
+    }
+
+    private static func tightAddedIndexes(hitIndex: Int, hits: [TagHit], spans: [ChangeSpan]) -> [Int] {
+        spans.enumerated().compactMap { index, span in
+            guard case .added(let lines) = span.kind, isTightest(hitIndex, for: lines, hits: hits) else { return nil }
             return index
         }
-        guard let change = overlapping.first else { return tag }
-        var classes = ["change-added"]
-        if let selected, overlapping.contains(selected), firstHit(overlapping: selected, spans: spans, hits: hits) == hitIndex {
-            classes.append("change-current")
-        }
-        return tagByAdding(classes: classes, change: change, to: tag)
     }
 
-    private static func tagByAdding(classes: [String], change: Int, to tag: String) -> String {
-        guard tag.hasSuffix(">") else { return tag }
+    private static func firstTightHit(for spanIndex: Int, hits: [TagHit], spans: [ChangeSpan]) -> Int? {
+        guard case .added(let lines) = spans[spanIndex].kind else { return nil }
+        return hits.indices.first { isTightest($0, for: lines, hits: hits) }
+    }
+
+    private static func endOfElement(named name: String, opening: Range<String.Index>, in html: String) -> String.Index {
+        let wanted = name.lowercased()
+        if voidNames.contains(wanted) { return opening.upperBound }
+        var depth = 1
+        var index = opening.upperBound
+        while index < html.endIndex {
+            guard let bracket = html[index...].firstIndex(of: "<") else { break }
+            let next = html.index(after: bracket)
+            guard next < html.endIndex else { break }
+            let isClose = html[next] == "/"
+            let nameStart = isClose ? html.index(after: next) : next
+            guard nameStart < html.endIndex else { break }
+            var nameEnd = nameStart
+            while nameEnd < html.endIndex {
+                let character = html[nameEnd]
+                if character.isLetter || character.isNumber {
+                    nameEnd = html.index(after: nameEnd)
+                } else {
+                    break
+                }
+            }
+            guard let close = html[nameEnd...].firstIndex(of: ">") else { break }
+            if html[nameStart..<nameEnd].lowercased() == wanted {
+                if isClose {
+                    depth -= 1
+                    if depth == 0 { return html.index(after: close) }
+                } else if html[html.index(before: close)] != "/" {
+                    depth += 1
+                }
+            }
+            index = html.index(after: close)
+        }
+        return html.endIndex
+    }
+
+    private static func fenceBody(in html: String, pre: TagHit) -> FenceBody? {
+        guard let codeStart = html[pre.range.upperBound...].range(of: "<code")?.lowerBound,
+              let openEnd = html[codeStart...].firstIndex(of: ">"),
+              let close = html[html.index(after: openEnd)...].range(of: "</code>") else { return nil }
+        let bodyStart = html.index(after: openEnd)
+        let text = String(html[bodyStart..<close.lowerBound])
+        var parts = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if text.hasSuffix("\n"), parts.last?.isEmpty == true {
+            parts.removeLast()
+        }
+        let span = pre.endLine - pre.startLine + 1
+        let lead = parts.count < span ? (span - parts.count) / 2 : 0
+        return FenceBody(range: bodyStart..<close.lowerBound, text: text, contentStart: pre.startLine + lead)
+    }
+
+    private static func wrapFenceLines(
+        _ text: String,
+        contentStart: Int,
+        spans: [ChangeSpan],
+        selected: Int?
+    ) -> (text: String, didMark: Bool) {
+        let trailingNewline = text.hasSuffix("\n")
+        var parts = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+        if trailingNewline, parts.last?.isEmpty == true {
+            parts.removeLast()
+        }
+        var didMark = false
+        let wrapped = parts.enumerated().map { offset, line in
+            let sourceLine = contentStart + offset
+            guard let change = spans.firstIndex(where: { span in
+                if case .added(let lines) = span.kind { return lines.contains(sourceLine) }
+                return false
+            }) else { return line }
+            didMark = true
+            var classes = "change-added"
+            if selected == change { classes += " change-current" }
+            return "<span class=\"\(classes)\" data-change=\"\(change)\" data-sourcepos=\"\(sourceLine):1-\(sourceLine):1\">\(line)</span>"
+        }
+        var joined = wrapped.joined(separator: "\n")
+        if trailingNewline { joined += "\n" }
+        return (joined, didMark)
+    }
+
+    private static func apply(_ edits: [Edit], to html: String) -> String {
+        let ordered = edits.sorted { lhs, rhs in
+            if lhs.start != rhs.start { return lhs.start < rhs.start }
+            return lhs.order < rhs.order
+        }
+        var result = ""
+        var cursor = html.startIndex
+        for edit in ordered {
+            guard edit.start >= cursor else { continue }
+            result += html[cursor..<edit.start]
+            result += edit.text
+            cursor = edit.end
+        }
+        result += html[cursor...]
+        return result
+    }
+
+    private static func tagByAdding(classes: [String], changes: [Int], to tag: String) -> String {
+        guard tag.hasSuffix(">"), let first = changes.first else { return tag }
         var result = String(tag.dropLast())
         let addition = classes.joined(separator: " ")
         if let classStart = result.range(of: "class=\"") {
-            let value = result.index(classStart.upperBound, offsetBy: 0)
-            result.insert(contentsOf: addition + " ", at: value)
+            result.insert(contentsOf: addition + " ", at: classStart.upperBound)
         } else {
             result += " class=\"\(addition)\""
         }
-        result += " data-change=\"\(change)\">"
+        result += " data-change=\"\(first)\""
+        if changes.count > 1 {
+            result += " data-changes=\"\(changes.map(String.init).joined(separator: " "))\""
+        }
+        result += ">"
         return result
     }
 
@@ -265,15 +489,17 @@ public enum ChangeReview {
         _ spanIndex: Int,
         spans: [ChangeSpan],
         selected: Int?,
-        removedLabel: (Int) -> String
+        removedLabel: (Int) -> String,
+        element: String
     ) -> String {
         guard case .removed(_, let count) = spans[spanIndex].kind else { return "" }
+        let name = element == "li" ? "li" : "p"
         var classes = "change-removed"
         if selected == spanIndex {
             classes += " change-current"
         }
         let label = escape(removedLabel(count))
-        return "<p class=\"\(classes)\" data-change=\"\(spanIndex)\">\(label)</p>"
+        return "<\(name) class=\"\(classes)\" data-change=\"\(spanIndex)\">\(label)</\(name)>"
     }
 
     private static func escape(_ text: String) -> String {

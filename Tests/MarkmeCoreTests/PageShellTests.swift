@@ -30,6 +30,7 @@ final class PageShellTests: XCTestCase {
         XCTAssertTrue(html.contains("window.markmePresent"))
         XCTAssertTrue(html.contains("window.markmeSlide"))
         XCTAssertTrue(html.contains("window.markmeShowChange"))
+        XCTAssertTrue(html.contains("data-changes"))
         XCTAssertTrue(html.contains(".change-added"))
         XCTAssertTrue(html.contains(".change-removed"))
         XCTAssertTrue(html.contains("body.presenting"))

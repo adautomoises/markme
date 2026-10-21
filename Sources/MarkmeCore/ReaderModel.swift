@@ -82,6 +82,9 @@ public struct ReaderModel: Equatable, Sendable {
         if changeBaseline == nil {
             changeBaseline = previous
         }
+        // The previous spans address the previous string. Drop them before the new diff is ready.
+        changes = []
+        changeCursor = nil
         changeRevision += 1
     }
 

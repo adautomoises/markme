@@ -143,7 +143,23 @@ public enum PageShell {
         window.markmeShowChange = function (index) {
           var marked = document.querySelectorAll(".change-current");
           for (var i = 0; i < marked.length; i++) marked[i].classList.remove("change-current");
-          var match = document.querySelector('[data-change="' + String(index | 0) + '"]');
+          var key = String(index | 0);
+          var nodes = document.querySelectorAll("[data-change], [data-changes]");
+          var match = null;
+          var best = Infinity;
+          for (var i = 0; i < nodes.length; i++) {
+            var node = nodes[i];
+            var single = node.getAttribute("data-change");
+            var many = (node.getAttribute("data-changes") || "").split(" ");
+            var hit = single === key;
+            if (!hit) {
+              for (var j = 0; j < many.length; j++) if (many[j] === key) hit = true;
+            }
+            if (!hit) continue;
+            var box = node.getBoundingClientRect();
+            var area = Math.abs(box.width * box.height);
+            if (area <= best) { best = area; match = node; }
+          }
           if (!match) return;
           match.classList.add("change-current");
           match.scrollIntoView({ block: "center" });
@@ -212,14 +228,26 @@ public enum PageShell {
             if (!pre) return;
             var div = document.createElement("div");
             div.className = "mermaid";
-            if (pre.classList.contains("change-added") || node.classList.contains("change-added")) {
+            var marks = pre.querySelectorAll("[data-change]");
+            var ids = [];
+            var own = pre.getAttribute("data-change") || node.getAttribute("data-change");
+            if (own) ids.push(own);
+            for (var i = 0; i < marks.length; i++) {
+              var id = marks[i].getAttribute("data-change");
+              if (id && ids.indexOf(id) < 0) ids.push(id);
+            }
+            if (pre.classList.contains("change-added") || node.classList.contains("change-added") || ids.length) {
               div.classList.add("change-added");
             }
-            if (pre.classList.contains("change-current") || node.classList.contains("change-current")) {
+            if (pre.classList.contains("change-current") || node.classList.contains("change-current") || pre.querySelector(".change-current")) {
               div.classList.add("change-current");
             }
-            var change = pre.getAttribute("data-change") || node.getAttribute("data-change");
-            if (change) div.setAttribute("data-change", change);
+            var listed = pre.getAttribute("data-changes") || node.getAttribute("data-changes");
+            if (listed) ids = listed.split(" ");
+            if (ids.length) {
+              div.setAttribute("data-change", ids[0]);
+              if (ids.length > 1) div.setAttribute("data-changes", ids.join(" "));
+            }
             div.textContent = node.textContent || "";
             pre.replaceWith(div);
           });

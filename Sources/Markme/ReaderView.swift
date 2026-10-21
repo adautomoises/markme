@@ -24,6 +24,8 @@ struct ReaderView: View {
     @State private var toolbarNeedsRestore = false
     @State private var modeToolbarMounted = true
     @State private var changeScrollToken = 0
+    /// Change navigation scrolls both panes itself. Ignore the bounds events that scroll posts.
+    @State private var ignoreScrollSyncUntil: Date?
     @FocusState private var findFieldFocused: Bool
     @StateObject private var watcher = FileWatcher()
 
@@ -283,6 +285,11 @@ struct ReaderView: View {
     }
 
     private func stepChange(_ delta: Int) {
+        ignoreScrollSyncUntil = Date().addingTimeInterval(0.4)
+        if changeScrollToken == 0 {
+            changeScrollToken = 1
+            return
+        }
         model.stepChange(by: delta)
         changeScrollToken += 1
     }
@@ -437,16 +444,21 @@ struct ReaderView: View {
 
     private func pageScrolled(_ line: Int) {
         let now = Date()
-        guard !sync.isEcho(now: now), model.mode == .split else { return }
+        guard !scrollSyncIsPaused(now), model.mode == .split else { return }
         sync.markEcho(now: now)
         sourceScrollLine = line
     }
 
     private func sourceScrolled(_ line: Int) {
         let now = Date()
-        guard !sync.isEcho(now: now), model.mode == .split else { return }
+        guard !scrollSyncIsPaused(now), model.mode == .split else { return }
         sync.markEcho(now: now)
         pageScrollLine = line
+    }
+
+    private func scrollSyncIsPaused(_ now: Date) -> Bool {
+        if let ignoreScrollSyncUntil, now < ignoreScrollSyncUntil { return true }
+        return sync.isEcho(now: now)
     }
 
     private func syncPresentationChrome() {
