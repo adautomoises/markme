@@ -9,7 +9,7 @@ You need macOS 14 or later and Swift 6.
 ```sh
 swift test
 scripts/package-app.sh
-open -a "$PWD/Markme.app" Fixtures/weekend.md
+open -a /Applications/Markme.app Fixtures/weekend.md
 ```
 
 `swift test` is what CI runs, plus a release build.
