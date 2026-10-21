@@ -24,6 +24,10 @@ struct ReaderView: View {
     @State private var toolbarNeedsRestore = false
     @State private var modeToolbarMounted = true
     @State private var changeScrollToken = 0
+    @State private var sourceCaretLine = 1
+    @State private var sourceSelectionCollapsed = true
+    @State private var pageCaretLine = 1
+    @State private var pageSelectionCollapsed = true
     /// Change navigation scrolls both panes itself. Ignore the bounds events that scroll posts.
     @State private var ignoreScrollSyncUntil: Date?
     @FocusState private var findFieldFocused: Bool
@@ -122,6 +126,9 @@ struct ReaderView: View {
             guard ownsMenuAction else { return }
             findPresented = true
         }
+        .onReceive(NotificationCenter.default.publisher(for: .markmeCopyLocation)) { _ in
+            copyLocation()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .markmeMode)) { note in
             guard ownsMenuAction, let raw = note.object as? String, let mode = ReaderMode(rawValue: raw) else { return }
             model.mode = mode
@@ -175,7 +182,14 @@ struct ReaderView: View {
             changeScrollToken: changeScrollToken,
             onSlide: { slideIndex = $0 },
             onLink: open,
-            onVisibleLine: pageScrolled
+            onVisibleLine: { line in
+                pageScrolled(line)
+                if pageSelectionCollapsed { pageCaretLine = line }
+            },
+            onSelection: { line, collapsed in
+                pageCaretLine = line
+                pageSelectionCollapsed = collapsed
+            }
         )
     }
 
@@ -188,7 +202,11 @@ struct ReaderView: View {
             changes: model.changes,
             changeCursor: model.changeCursor,
             changeScrollToken: changeScrollToken,
-            onVisibleLine: sourceScrolled
+            onVisibleLine: sourceScrolled,
+            onSelection: { line, collapsed in
+                sourceCaretLine = line
+                sourceSelectionCollapsed = collapsed
+            }
         )
     }
 
@@ -351,6 +369,37 @@ struct ReaderView: View {
 
     private func copy(_ key: CopyKey) -> String {
         ReaderCopy.string(key, languageCode: languageCode)
+    }
+
+    private func copyLocation() {
+        guard ownsMenuAction, let fileURL else { return }
+        let headings = LocationReference.headingLines(in: model.text)
+        let caret: Int
+        let extends: Bool
+        switch model.mode {
+        case .source:
+            caret = sourceCaretLine
+            extends = !sourceSelectionCollapsed
+        case .page, .presentation:
+            caret = pageCaretLine
+            extends = !pageSelectionCollapsed
+        case .split:
+            if !sourceSelectionCollapsed {
+                caret = sourceCaretLine
+                extends = true
+            } else if !pageSelectionCollapsed {
+                caret = pageCaretLine
+                extends = true
+            } else {
+                caret = sourceCaretLine
+                extends = false
+            }
+        }
+        let line = LocationReference.line(caret: caret, selectionExtends: extends, headings: headings)
+        let reference = LocationReference.format(fileURL: fileURL, line: line)
+        let board = NSPasteboard.general
+        board.clearContents()
+        board.setString(reference, forType: .string)
     }
 
     private func dismissBanner() {
@@ -551,6 +600,7 @@ private enum MermaidLibrary {
 
 extension Notification.Name {
     static let markmeFind = Notification.Name("markme.find")
+    static let markmeCopyLocation = Notification.Name("markme.copyLocation")
     static let markmeMode = Notification.Name("markme.mode")
     static let markmeZoom = Notification.Name("markme.zoom")
     static let markmeSlide = Notification.Name("markme.slide")

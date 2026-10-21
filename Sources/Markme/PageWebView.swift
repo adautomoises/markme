@@ -17,9 +17,10 @@ struct PageWebView: NSViewRepresentable {
     var onSlide: (Int) -> Void
     var onLink: (URL) -> Void
     var onVisibleLine: (Int) -> Void
+    var onSelection: (Int, Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onLink: onLink, onVisibleLine: onVisibleLine, onSlide: onSlide)
+        Coordinator(onLink: onLink, onVisibleLine: onVisibleLine, onSelection: onSelection, onSlide: onSlide)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -36,6 +37,7 @@ struct PageWebView: NSViewRepresentable {
     func updateNSView(_ view: WKWebView, context: Context) {
         context.coordinator.onLink = onLink
         context.coordinator.onVisibleLine = onVisibleLine
+        context.coordinator.onSelection = onSelection
         context.coordinator.onSlide = onSlide
         context.coordinator.pageZoom = zoom
         if abs(view.pageZoom - zoom) > 0.001 {
@@ -93,6 +95,7 @@ struct PageWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onLink: (URL) -> Void
         var onVisibleLine: (Int) -> Void
+        var onSelection: (Int, Bool) -> Void
         var onSlide: (Int) -> Void
         var lastHTML: String?
         var lastBase: URL?
@@ -128,13 +131,25 @@ struct PageWebView: NSViewRepresentable {
             }
         }
 
-        init(onLink: @escaping (URL) -> Void, onVisibleLine: @escaping (Int) -> Void, onSlide: @escaping (Int) -> Void) {
+        init(
+            onLink: @escaping (URL) -> Void,
+            onVisibleLine: @escaping (Int) -> Void,
+            onSelection: @escaping (Int, Bool) -> Void,
+            onSlide: @escaping (Int) -> Void
+        ) {
             self.onLink = onLink
             self.onVisibleLine = onVisibleLine
+            self.onSelection = onSelection
             self.onSlide = onSlide
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            if let body = message.body as? [String: Any], (body["kind"] as? String) == "selection" {
+                let line = (body["line"] as? NSNumber)?.intValue ?? (body["line"] as? Int) ?? 0
+                let collapsed = (body["collapsed"] as? NSNumber)?.boolValue ?? (body["collapsed"] as? Bool) ?? true
+                if line > 0 { onSelection(line, collapsed) }
+                return
+            }
             let line: Int?
             if let value = message.body as? Int {
                 line = value
@@ -212,6 +227,20 @@ struct PageWebView: NSViewRepresentable {
             window.webkit.messageHandlers.markme.postMessage(line);
           };
           document.addEventListener('scroll', report, true);
+          document.addEventListener('selectionchange', () => {
+            const sel = window.getSelection();
+            if (!sel) return;
+            let node = sel.anchorNode;
+            if (node && node.nodeType === 3) node = node.parentElement;
+            while (node && node.nodeType === 1 && !node.getAttribute('data-sourcepos')) node = node.parentElement;
+            const line = node ? lineOf(node) : 0;
+            if (!line) return;
+            window.webkit.messageHandlers.markme.postMessage({
+              kind: 'selection',
+              line: line,
+              collapsed: sel.isCollapsed
+            });
+          });
           window.markmeScrollToLine = (line) => {
             const nodes = document.querySelectorAll('[data-sourcepos]');
             let target = null;

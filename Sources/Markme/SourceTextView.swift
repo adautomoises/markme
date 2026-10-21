@@ -11,9 +11,10 @@ struct SourceTextView: NSViewRepresentable {
     let changeCursor: Int?
     let changeScrollToken: Int
     var onVisibleLine: (Int) -> Void
+    var onSelection: (Int, Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onVisibleLine: onVisibleLine)
+        Coordinator(onVisibleLine: onVisibleLine, onSelection: onSelection)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -49,7 +50,9 @@ struct SourceTextView: NSViewRepresentable {
         scroll.verticalRulerView = ruler
         ruler.clientView = textView
 
+        textView.delegate = context.coordinator
         context.coordinator.textView = textView
+        context.coordinator.reportSelection()
         context.coordinator.lastZoom = zoom
         context.coordinator.ruler = ruler
         scroll.contentView.postsBoundsChangedNotifications = true
@@ -64,6 +67,7 @@ struct SourceTextView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.onVisibleLine = onVisibleLine
+        context.coordinator.onSelection = onSelection
         guard let textView = scroll.documentView as? NSTextView else { return }
         if context.coordinator.lastZoom != zoom {
             context.coordinator.lastZoom = zoom
@@ -76,6 +80,7 @@ struct SourceTextView: NSViewRepresentable {
         if textView.string != text {
             textView.string = text
             context.coordinator.ruler?.needsDisplay = true
+            context.coordinator.reportSelection()
         }
         if context.coordinator.lastFind != findQuery {
             context.coordinator.lastFind = findQuery
@@ -95,8 +100,9 @@ struct SourceTextView: NSViewRepresentable {
         context.coordinator.applyChanges(changes, cursor: changeCursor, token: changeScrollToken)
     }
 
-    final class Coordinator: NSObject {
+    final class Coordinator: NSObject, NSTextViewDelegate {
         var onVisibleLine: (Int) -> Void
+        var onSelection: (Int, Bool) -> Void
         weak var textView: NSTextView?
         weak var ruler: LineNumberRuler?
         var lastFind = ""
@@ -107,8 +113,27 @@ struct SourceTextView: NSViewRepresentable {
         var lastChangeToken = 0
         var lastHighlighted = ""
 
-        init(onVisibleLine: @escaping (Int) -> Void) {
+        init(onVisibleLine: @escaping (Int) -> Void, onSelection: @escaping (Int, Bool) -> Void) {
             self.onVisibleLine = onVisibleLine
+            self.onSelection = onSelection
+        }
+
+        @MainActor
+        func textViewDidChangeSelection(_ notification: Notification) {
+            reportSelection()
+        }
+
+        @MainActor
+        func reportSelection() {
+            guard let textView else { return }
+            let range = textView.selectedRange()
+            onSelection(Self.lineNumber(location: range.location, in: textView.string), range.length == 0)
+        }
+
+        static func lineNumber(location: Int, in text: String) -> Int {
+            let ns = text as NSString
+            let end = min(max(location, 0), ns.length)
+            return ns.substring(to: end).components(separatedBy: "\n").count
         }
 
         @MainActor
