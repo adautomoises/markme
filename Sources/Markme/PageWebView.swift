@@ -9,11 +9,15 @@ struct PageWebView: NSViewRepresentable {
     let scrollToLine: Int?
     let scrollToAnchor: String?
     let anchorToken: Int
+    let zoom: Double
+    let presenting: Bool
+    let slideIndex: Int
+    var onSlide: (Int) -> Void
     var onLink: (URL) -> Void
     var onVisibleLine: (Int) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onLink: onLink, onVisibleLine: onVisibleLine)
+        Coordinator(onLink: onLink, onVisibleLine: onVisibleLine, onSlide: onSlide)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -22,12 +26,26 @@ struct PageWebView: NSViewRepresentable {
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
         view.setValue(false, forKey: "drawsBackground")
+        view.pageZoom = zoom
+        context.coordinator.pageZoom = zoom
         return view
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
         context.coordinator.onLink = onLink
         context.coordinator.onVisibleLine = onVisibleLine
+        context.coordinator.onSlide = onSlide
+        context.coordinator.pageZoom = zoom
+        if abs(view.pageZoom - zoom) > 0.001 {
+            view.pageZoom = zoom
+        }
+        let presentationChanged = context.coordinator.presenting != presenting
+            || context.coordinator.slideIndex != slideIndex
+        context.coordinator.presenting = presenting
+        context.coordinator.slideIndex = slideIndex
+        if presentationChanged {
+            context.coordinator.applyPresentation(in: view)
+        }
         if context.coordinator.lastHTML != html || context.coordinator.lastBase != baseURL {
             context.coordinator.lastHTML = html
             context.coordinator.lastBase = baseURL
@@ -55,6 +73,7 @@ struct PageWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onLink: (URL) -> Void
         var onVisibleLine: (Int) -> Void
+        var onSlide: (Int) -> Void
         var lastHTML: String?
         var lastBase: URL?
         var lastFind: String?
@@ -62,10 +81,33 @@ struct PageWebView: NSViewRepresentable {
         var lastAnchorToken = 0
         var pendingAnchor: String?
         var lastReportedLine: Int?
+        var pageZoom = 1.0
+        var presenting = false
+        var slideIndex = 0
 
-        init(onLink: @escaping (URL) -> Void, onVisibleLine: @escaping (Int) -> Void) {
+        func applyPresentation(in webView: WKWebView) {
+            let flag = presenting ? "true" : "false"
+            let requested = slideIndex
+            webView.evaluateJavaScript(
+                "(function () { if (window.markmePresent) window.markmePresent(\(flag)); return window.markmeSlide ? window.markmeSlide(\(requested)) : 0; })()"
+            ) { value, _ in
+                let shown: Int?
+                if let number = value as? Int {
+                    shown = number
+                } else if let number = value as? NSNumber {
+                    shown = number.intValue
+                } else {
+                    shown = nil
+                }
+                guard let shown, shown != requested else { return }
+                self.onSlide(shown)
+            }
+        }
+
+        init(onLink: @escaping (URL) -> Void, onVisibleLine: @escaping (Int) -> Void, onSlide: @escaping (Int) -> Void) {
             self.onLink = onLink
             self.onVisibleLine = onVisibleLine
+            self.onSlide = onSlide
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -84,6 +126,8 @@ struct PageWebView: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            webView.pageZoom = pageZoom
+            applyPresentation(in: webView)
             webView.evaluateJavaScript(Self.scrollScript) { _, _ in
                 if let pending = self.pendingAnchor {
                     Self.scrollToAnchor(pending, in: webView)

@@ -11,6 +11,10 @@ struct MarkmeApp: App {
         NotificationCenter.default.post(name: .markmeMode, object: mode.rawValue)
     }
 
+    private func postZoom(_ action: ReaderZoomAction) {
+        NotificationCenter.default.post(name: .markmeZoom, object: action.rawValue)
+    }
+
     var body: some Scene {
         DocumentGroup(viewing: ReaderDocument.self) { configuration in
             ReaderView(document: configuration.document, fileURL: configuration.fileURL)
@@ -30,6 +34,23 @@ struct MarkmeApp: App {
                     postMode(.page)
                 }
                 .keyboardShortcut("3", modifiers: .command)
+                Button(ReaderCopy.string(.modePresentation, languageCode: languageCode)) {
+                    postMode(.presentation)
+                }
+                .keyboardShortcut("4", modifiers: .command)
+                Divider()
+                Button(ReaderCopy.string(.zoomIn, languageCode: languageCode)) {
+                    postZoom(.zoomIn)
+                }
+                .keyboardShortcut("+", modifiers: .command)
+                Button(ReaderCopy.string(.zoomOut, languageCode: languageCode)) {
+                    postZoom(.zoomOut)
+                }
+                .keyboardShortcut("-", modifiers: .command)
+                Button(ReaderCopy.string(.actualSize, languageCode: languageCode)) {
+                    postZoom(.actualSize)
+                }
+                .keyboardShortcut("0", modifiers: .command)
                 Divider()
                 Button(ReaderCopy.string(.findPrompt, languageCode: languageCode)) {
                     NotificationCenter.default.post(name: .markmeFind, object: nil)

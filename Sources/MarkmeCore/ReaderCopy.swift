@@ -5,6 +5,7 @@ public enum CopyKey: String, Sendable {
     case modeSource
     case modeSplit
     case modePage
+    case modePresentation
     case bannerQuestion
     case bannerAccept
     case bannerNotNow
@@ -12,6 +13,9 @@ public enum CopyKey: String, Sendable {
     case notUTF8
     case unreadable
     case findPrompt
+    case zoomIn
+    case zoomOut
+    case actualSize
 }
 
 public enum ReaderCopy {
@@ -22,6 +26,7 @@ public enum ReaderCopy {
         case .modeSource: return portuguese ? "Texto" : "Text"
         case .modeSplit: return portuguese ? "Lado a lado" : "Side by side"
         case .modePage: return portuguese ? "Página" : "Page"
+        case .modePresentation: return portuguese ? "Apresentação" : "Presentation"
         case .bannerQuestion:
             return portuguese
                 ? "Quer abrir os markdown neste visualizador?"
@@ -41,6 +46,9 @@ public enum ReaderCopy {
                 ? "Não foi possível ler este arquivo."
                 : "Could not read this file."
         case .findPrompt: return portuguese ? "Buscar" : "Find"
+        case .zoomIn: return portuguese ? "Aumentar" : "Zoom In"
+        case .zoomOut: return portuguese ? "Diminuir" : "Zoom Out"
+        case .actualSize: return portuguese ? "Tamanho real" : "Actual Size"
         }
     }
 }

@@ -2,7 +2,7 @@ import XCTest
 @testable import MarkmeCore
 
 final class PageShellTests: XCTestCase {
-    func testShellContract() {
+    func testShellContract() throws {
         let html = PageShell.html(body: "<p>oi</p>", highlighter: "HIGHLIGHTJS")
         XCTAssertTrue(html.contains("<p>oi</p>"))
         XCTAssertTrue(html.contains("HIGHLIGHTJS"))
@@ -20,5 +20,54 @@ final class PageShellTests: XCTestCase {
         XCTAssertTrue(html.contains(".hljs-keyword"))
         XCTAssertTrue(html.contains(".hljs-string"))
         XCTAssertTrue(html.contains(".hljs-comment"))
+        XCTAssertTrue(html.contains("registerLanguage(\"gherkin\""))
+        XCTAssertTrue(html.contains("Dado|Dada|Dados|Dadas|Quando|Então|Entao|Mas|Given|When|Then|And|But|E"))
+        XCTAssertTrue(html.contains(".language-gherkin .hljs-keyword"))
+        XCTAssertTrue(html.contains("#d1242f"))
+        XCTAssertTrue(html.contains("#1f75cb"))
+        XCTAssertTrue(html.contains(".hljs-meta"))
+        XCTAssertTrue(html.contains(".hljs-title.class_"))
+        XCTAssertTrue(html.contains("window.markmePresent"))
+        XCTAssertTrue(html.contains("window.markmeSlide"))
+        XCTAssertTrue(html.contains("body.presenting"))
+        XCTAssertFalse(html.contains("mermaid.run"))
+        XCTAssertFalse(html.contains("securityLevel"))
+        let article = try XCTUnwrap(html.range(of: "<article>"))
+        let script = try XCTUnwrap(html.range(of: "<script>"))
+        XCTAssertLessThan(article.lowerBound, script.lowerBound)
+    }
+
+    func testMermaidRendersOnlyWhenTheLibraryIsPassed() {
+        let html = PageShell.html(body: "<p>oi</p>", highlighter: "HIGHLIGHTJS", mermaid: "MERMAIDLIB")
+        XCTAssertTrue(html.contains("MERMAIDLIB"))
+        XCTAssertTrue(html.contains("securityLevel: \"strict\""))
+        XCTAssertTrue(html.contains("startOnLoad: false"))
+        XCTAssertTrue(html.contains("mermaid.run"))
+        XCTAssertTrue(html.contains("language-mermaid"))
+    }
+
+    func testMermaidFenceDetectionIgnoresProseAndOtherLanguages() {
+        XCTAssertTrue(PageShell.containsMermaidFence("```mermaid\ngraph TD\n```"))
+        XCTAssertTrue(PageShell.containsMermaidFence("~~~\nno\n~~~\n\n~~~mermaid\nA-->B\n~~~"))
+        XCTAssertTrue(PageShell.containsMermaidFence("   ```mermaid\ngraph TD\n   ```"))
+        XCTAssertFalse(PageShell.containsMermaidFence("    ```mermaid\ngraph TD\n    ```"))
+        XCTAssertFalse(PageShell.containsMermaidFence("```mermaidx\ngraph TD\n```"))
+        XCTAssertFalse(PageShell.containsMermaidFence("A palavra mermaid fica no texto.\n\n```swift\nlet mermaid = 1\n```"))
+    }
+
+    func testDartGrammarCoversFlutter() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("App/Resources/dart.js"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(source.contains("registerLanguage(\"dart\""))
+        XCTAssertTrue(source.contains("aliases: [\"flutter\"]"))
+        XCTAssertTrue(source.contains("StatelessWidget"))
+        XCTAssertTrue(source.contains("BuildContext"))
+        XCTAssertTrue(source.contains("@[A-Za-z]+"))
     }
 }

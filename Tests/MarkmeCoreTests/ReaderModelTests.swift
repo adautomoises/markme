@@ -71,6 +71,42 @@ final class ReaderModelTests: XCTestCase {
         XCTAssertEqual(TextFind.ranges(of: "a.", in: "abc").count, 0)
     }
 
+    func testZoomStepsStayBetweenHalfAndTriple() {
+        var zoom = ReaderZoom()
+        XCTAssertEqual(zoom.factor, 1, accuracy: 0.001)
+        zoom.apply(.zoomIn)
+        XCTAssertEqual(zoom.factor, 1.1, accuracy: 0.001)
+        zoom.apply(.zoomOut)
+        zoom.apply(.zoomOut)
+        XCTAssertEqual(zoom.factor, 0.9, accuracy: 0.001)
+        zoom.apply(.actualSize)
+        XCTAssertEqual(zoom.factor, 1, accuracy: 0.001)
+        XCTAssertEqual(SourceTextConfiguration.fontSize(zoom: zoom.factor), 13, accuracy: 0.001)
+        for _ in 0..<40 { zoom.apply(.zoomIn) }
+        XCTAssertEqual(zoom.factor, 3, accuracy: 0.001)
+        XCTAssertEqual(SourceTextConfiguration.fontSize(zoom: zoom.factor), 39, accuracy: 0.001)
+        for _ in 0..<40 { zoom.apply(.zoomOut) }
+        XCTAssertEqual(zoom.factor, 0.5, accuracy: 0.001)
+        XCTAssertEqual(SourceTextConfiguration.fontSize(zoom: zoom.factor), 6.5, accuracy: 0.001)
+    }
+
+    func testCommandWheelNotchZoomsOneStepAndTrackpadAccumulates() {
+        var wheel = WheelZoom()
+        XCTAssertEqual(wheel.actions(deltaY: 1, precise: false), [.zoomIn])
+        XCTAssertEqual(wheel.actions(deltaY: -1, precise: false), [.zoomOut])
+        XCTAssertEqual(wheel.actions(deltaY: 0, precise: false), [])
+        XCTAssertEqual(wheel.actions(deltaY: 47, precise: true), [])
+        XCTAssertEqual(wheel.actions(deltaY: 1, precise: true), [.zoomIn])
+        XCTAssertEqual(wheel.remainder, 0, accuracy: 0.001)
+        XCTAssertEqual(wheel.actions(deltaY: -30, precise: true), [])
+        XCTAssertEqual(wheel.actions(deltaY: -20, precise: true), [.zoomOut])
+        XCTAssertEqual(wheel.actions(deltaY: 100, precise: true), [.zoomIn, .zoomIn])
+        XCTAssertEqual(wheel.remainder, 2, accuracy: 0.001)
+        wheel.endGesture()
+        XCTAssertEqual(wheel.remainder, 0, accuracy: 0.001)
+        XCTAssertEqual(wheel.actions(deltaY: 10, precise: true), [])
+    }
+
     func testEchoLock() {
         var sync = ScrollSync()
         let now = Date(timeIntervalSince1970: 1_000)
@@ -82,5 +118,38 @@ final class ReaderModelTests: XCTestCase {
     func testSourceCannotBeEdited() {
         XCTAssertFalse(SourceTextConfiguration.isEditable)
         XCTAssertTrue(SourceTextConfiguration.isSelectable)
+    }
+
+    func testPresentationKeepsTheToolbarVisibleUntilFullscreenStarts() {
+        let entering = PresentationChromePlanner.plan(presenting: true, fullscreen: false, enteredByUs: false)
+        XCTAssertFalse(entering.hideToolbar)
+        XCTAssertTrue(entering.toggleFullscreen)
+        XCTAssertTrue(entering.enteredByUs)
+
+        let inside = PresentationChromePlanner.plan(presenting: true, fullscreen: true, enteredByUs: true)
+        XCTAssertTrue(inside.hideToolbar)
+        XCTAssertFalse(inside.toggleFullscreen)
+        XCTAssertTrue(inside.enteredByUs)
+
+        let alreadyFullscreen = PresentationChromePlanner.plan(presenting: true, fullscreen: true, enteredByUs: false)
+        XCTAssertTrue(alreadyFullscreen.hideToolbar)
+        XCTAssertFalse(alreadyFullscreen.toggleFullscreen)
+        XCTAssertFalse(alreadyFullscreen.enteredByUs)
+    }
+
+    func testLeavingPresentationShowsTheToolbarAndLeavesOnlyOurFullscreen() {
+        let leaving = PresentationChromePlanner.plan(presenting: false, fullscreen: true, enteredByUs: true)
+        XCTAssertFalse(leaving.hideToolbar)
+        XCTAssertTrue(leaving.toggleFullscreen)
+        XCTAssertFalse(leaving.enteredByUs)
+
+        let beforeFullscreen = PresentationChromePlanner.plan(presenting: false, fullscreen: false, enteredByUs: true)
+        XCTAssertFalse(beforeFullscreen.hideToolbar)
+        XCTAssertFalse(beforeFullscreen.toggleFullscreen)
+
+        let usersOwnFullscreen = PresentationChromePlanner.plan(presenting: false, fullscreen: true, enteredByUs: false)
+        XCTAssertFalse(usersOwnFullscreen.hideToolbar)
+        XCTAssertFalse(usersOwnFullscreen.toggleFullscreen)
+        XCTAssertFalse(usersOwnFullscreen.enteredByUs)
     }
 }

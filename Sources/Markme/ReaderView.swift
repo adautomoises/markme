@@ -17,6 +17,12 @@ struct ReaderView: View {
     @State private var hostWindow: NSWindow?
     @State private var renderGeneration = 0
     @State private var sync = ScrollSync()
+    @State private var zoom = ReaderZoom()
+    @State private var slideIndex = 0
+    @State private var presentationFullscreen = false
+    @State private var hideToolbar = false
+    @State private var toolbarNeedsRestore = false
+    @State private var modeToolbarMounted = true
     @FocusState private var findFieldFocused: Bool
     @StateObject private var watcher = FileWatcher()
 
@@ -30,11 +36,11 @@ struct ReaderView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if model.showsBanner {
+            if model.showsBanner, model.mode != .presentation {
                 banner
                 Divider()
             }
-            if findPresented {
+            if findPresented, model.mode != .presentation {
                 findBar
                 Divider()
             }
@@ -43,8 +49,68 @@ struct ReaderView: View {
         .frame(minWidth: 720, minHeight: 480)
         .background(Color(nsColor: .textBackgroundColor))
         .toolbar { modeToolbar }
+        .toolbar(hideToolbar ? .hidden : .visible, for: .windowToolbar)
         .background(WindowPlacement { hostWindow = $0 })
-        .onAppear { startWatching() }
+        .onAppear {
+            startWatching()
+            ZoomKeys.installCompanion()
+            WheelZoomMonitor.shared.install()
+            PresentationSession.shared.install()
+            syncPresentationChrome()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didEnterFullScreenNotification)) { note in
+            guard let window = note.object as? NSWindow, window === hostWindow else { return }
+            syncPresentationChrome()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSWindow.didExitFullScreenNotification)) { note in
+            guard let window = note.object as? NSWindow, window === hostWindow else { return }
+            if model.mode == .presentation {
+                // The green button left fullscreen. Entering it again would
+                // trap the window. Show the mode buttons and stay on the slides.
+                presentationFullscreen = false
+                hideToolbar = false
+                if toolbarNeedsRestore {
+                    restoreModeToolbar(window)
+                }
+            } else {
+                syncPresentationChrome()
+            }
+        }
+        .onChange(of: model.mode) { previous, mode in
+            if mode == .presentation, previous != .presentation {
+                slideIndex = 0
+            }
+            syncPresentationChrome()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .markmeSlide)) { note in
+            guard let number = note.userInfo?[PresentationSession.windowKey] as? Int,
+                  hostWindow?.windowNumber == number,
+                  model.mode == .presentation,
+                  let action = note.object as? String else { return }
+            switch action {
+            case "next":
+                slideIndex += 1
+            case "previous":
+                slideIndex = max(0, slideIndex - 1)
+            case "first":
+                slideIndex = 0
+            case "exit":
+                model.mode = .page
+            default:
+                break
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .markmeZoom)) { note in
+            guard let raw = note.object as? String, let action = ReaderZoomAction(rawValue: raw) else { return }
+            if let number = note.userInfo?[WheelZoomMonitor.windowKey] as? Int {
+                guard hostWindow?.windowNumber == number else { return }
+            } else {
+                guard ownsMenuAction else { return }
+            }
+            var next = zoom
+            next.apply(action)
+            zoom = next
+        }
         .onReceive(NotificationCenter.default.publisher(for: .markmeFind)) { _ in
             guard ownsMenuAction else { return }
             findPresented = true
@@ -77,7 +143,7 @@ struct ReaderView: View {
             .padding()
         } else {
             switch model.mode {
-            case .page:
+            case .page, .presentation:
                 page
             case .source:
                 source
@@ -95,6 +161,10 @@ struct ReaderView: View {
             scrollToLine: pageScrollLine,
             scrollToAnchor: anchorName,
             anchorToken: anchorToken,
+            zoom: zoom.factor,
+            presenting: model.mode == .presentation,
+            slideIndex: slideIndex,
+            onSlide: { slideIndex = $0 },
             onLink: open,
             onVisibleLine: pageScrolled
         )
@@ -105,6 +175,7 @@ struct ReaderView: View {
             text: model.text,
             findQuery: findPresented ? findQuery : "",
             scrollToLine: sourceScrollLine,
+            zoom: zoom.factor,
             onVisibleLine: sourceScrolled
         )
     }
@@ -170,10 +241,13 @@ struct ReaderView: View {
 
     @ToolbarContentBuilder
     private var modeToolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
-            modeButton(.source, symbol: "line.3.horizontal")
-            modeButton(.split, symbol: "rectangle.split.2x1")
-            modeButton(.page, symbol: "photo")
+        if modeToolbarMounted {
+            ToolbarItemGroup(placement: .primaryAction) {
+                modeButton(.source, symbol: "line.3.horizontal")
+                modeButton(.split, symbol: "rectangle.split.2x1")
+                modeButton(.page, symbol: "photo")
+                modeButton(.presentation, symbol: "play.rectangle")
+            }
         }
     }
 
@@ -182,6 +256,7 @@ struct ReaderView: View {
         case .source: .modeSource
         case .split: .modeSplit
         case .page: .modePage
+        case .presentation: .modePresentation
         }
         return Button {
             model.mode = mode
@@ -216,8 +291,9 @@ struct ReaderView: View {
         let generation = renderGeneration
         let text = model.text
         let highlighter = HighlighterLibrary.script
+        let mermaid = PageShell.containsMermaidFence(text) ? MermaidLibrary.script : ""
         let html = await Task.detached(priority: .userInitiated) {
-            PageShell.html(body: MarkdownRenderer.render(text).htmlBody, highlighter: highlighter)
+            PageShell.html(body: MarkdownRenderer.render(text).htmlBody, highlighter: highlighter, mermaid: mermaid)
         }.value
         guard generation == renderGeneration else { return }
         pageHTML = html
@@ -292,6 +368,45 @@ struct ReaderView: View {
         pageScrollLine = line
     }
 
+    private func syncPresentationChrome() {
+        guard let window = hostWindow else { return }
+        let on = model.mode == .presentation
+        PresentationSession.shared.set(window: window.windowNumber, active: on)
+        let fullscreen = window.styleMask.contains(.fullScreen)
+        let plan = PresentationChromePlanner.plan(
+            presenting: on,
+            fullscreen: fullscreen,
+            enteredByUs: presentationFullscreen
+        )
+        presentationFullscreen = plan.enteredByUs
+        if plan.hideToolbar {
+            toolbarNeedsRestore = true
+            hideToolbar = true
+        } else {
+            hideToolbar = false
+            if toolbarNeedsRestore, !plan.toggleFullscreen {
+                restoreModeToolbar(window)
+            }
+        }
+        if plan.toggleFullscreen {
+            window.toggleFullScreen(nil)
+        }
+    }
+
+    /// SwiftUI drops the mode buttons when the toolbar was hidden across a
+    /// fullscreen transition. Take them out and put them back on the next turn,
+    /// after AppKit has finished restoring the pre-fullscreen chrome.
+    private func restoreModeToolbar(_ window: NSWindow) {
+        toolbarNeedsRestore = false
+        hideToolbar = false
+        modeToolbarMounted = false
+        Task { @MainActor in
+            modeToolbarMounted = true
+            guard model.mode != .presentation else { return }
+            window.toolbar?.isVisible = true
+        }
+    }
+
     private func startWatching() {
         guard let fileURL else { return }
         _ = fileURL.startAccessingSecurityScopedResource()
@@ -306,7 +421,11 @@ struct ReaderView: View {
 
 private enum HighlighterLibrary {
     static let script: String = {
-        if let url = Bundle.main.url(forResource: "highlight.min", withExtension: "js"),
+        load(resource: "highlight.min", ext: "js") + "\n" + load(resource: "dart", ext: "js")
+    }()
+
+    private static func load(resource: String, ext: String) -> String {
+        if let url = Bundle.main.url(forResource: resource, withExtension: ext),
            let text = try? String(contentsOf: url, encoding: .utf8) {
             return text
         }
@@ -314,14 +433,178 @@ private enum HighlighterLibrary {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-            .appendingPathComponent("App/Resources/highlight.min.js")
+            .appendingPathComponent("App/Resources/\(resource).\(ext)")
         return (try? String(contentsOf: dev, encoding: .utf8)) ?? ""
+    }
+}
+
+private enum MermaidLibrary {
+    static let script: String = {
+        let raw: String
+        if let url = Bundle.main.url(forResource: "mermaid.min", withExtension: "js"),
+           let text = try? String(contentsOf: url, encoding: .utf8) {
+            raw = text
+        } else {
+            let dev = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("App/Resources/mermaid.min.js")
+            raw = (try? String(contentsOf: dev, encoding: .utf8)) ?? ""
+        }
+        return raw.replacingOccurrences(of: "</script", with: "<\\/script", options: .caseInsensitive)
     }()
 }
 
 extension Notification.Name {
     static let markmeFind = Notification.Name("markme.find")
     static let markmeMode = Notification.Name("markme.mode")
+    static let markmeZoom = Notification.Name("markme.zoom")
+    static let markmeSlide = Notification.Name("markme.slide")
+}
+
+@MainActor
+enum ZoomKeys {
+    static func installCompanion() {
+        if attach() { return }
+        Task { @MainActor in _ = attach() }
+    }
+
+    @discardableResult
+    private static func attach() -> Bool {
+        let titles = [
+            ReaderCopy.string(.zoomIn, languageCode: "pt"),
+            ReaderCopy.string(.zoomIn, languageCode: "en"),
+        ]
+        guard let menu = NSApp.mainMenu?.items.compactMap(\.submenu).first(where: { submenu in
+            submenu.items.contains { titles.contains($0.title) && !$0.isHidden }
+        }) else { return false }
+        guard let visible = menu.items.first(where: { titles.contains($0.title) && !$0.isHidden }) else { return false }
+        let companion = visible.keyEquivalent == "+" ? "=" : "+"
+        guard !menu.items.contains(where: { $0.isHidden && $0.keyEquivalent == companion }) else { return true }
+        let extra = NSMenuItem(title: visible.title, action: #selector(ZoomBridge.zoomIn(_:)), keyEquivalent: companion)
+        extra.keyEquivalentModifierMask = .command
+        extra.target = ZoomBridge.shared
+        extra.isHidden = true
+        extra.allowsKeyEquivalentWhenHidden = true
+        menu.addItem(extra)
+        return true
+    }
+}
+
+final class WheelZoomMonitor: @unchecked Sendable {
+    static let shared = WheelZoomMonitor()
+    static let windowKey = "window"
+    private let lock = NSLock()
+    private var wheel = WheelZoom()
+    private var installed = false
+
+    func install() {
+        lock.lock()
+        let already = installed
+        installed = true
+        lock.unlock()
+        guard !already else { return }
+        NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            self?.transform(event) ?? event
+        }
+    }
+
+    private func transform(_ event: NSEvent) -> NSEvent? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags.contains(.command), !flags.contains(.control) else {
+            lock.lock()
+            wheel.endGesture()
+            lock.unlock()
+            return event
+        }
+        lock.lock()
+        let actions = wheel.actions(
+            deltaY: Double(event.scrollingDeltaY),
+            precise: event.hasPreciseScrollingDeltas
+        )
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) || event.momentumPhase.contains(.ended) {
+            wheel.endGesture()
+        }
+        lock.unlock()
+        for action in actions {
+            NotificationCenter.default.post(
+                name: .markmeZoom,
+                object: action.rawValue,
+                userInfo: [Self.windowKey: event.windowNumber]
+            )
+        }
+        return nil
+    }
+}
+
+final class PresentationSession: @unchecked Sendable {
+    static let shared = PresentationSession()
+    static let windowKey = "window"
+    private let lock = NSLock()
+    private var windows = Set<Int>()
+    private var installed = false
+
+    func install() {
+        lock.lock()
+        let already = installed
+        installed = true
+        lock.unlock()
+        guard !already else { return }
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.transform(event) ?? event
+        }
+    }
+
+    func set(window: Int, active: Bool) {
+        lock.lock()
+        if active {
+            windows.insert(window)
+        } else {
+            windows.remove(window)
+        }
+        lock.unlock()
+    }
+
+    private func transform(_ event: NSEvent) -> NSEvent? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) || flags.contains(.option) || flags.contains(.control) {
+            return event
+        }
+        lock.lock()
+        let active = windows.contains(event.windowNumber)
+        lock.unlock()
+        guard active else { return event }
+        let action: String?
+        switch event.keyCode {
+        case 124, 125, 49, 36, 76, 121:
+            action = "next"
+        case 123, 126, 116:
+            action = "previous"
+        case 115:
+            action = "first"
+        case 53:
+            action = "exit"
+        default:
+            action = nil
+        }
+        guard let action else { return event }
+        NotificationCenter.default.post(
+            name: .markmeSlide,
+            object: action,
+            userInfo: [Self.windowKey: event.windowNumber]
+        )
+        return nil
+    }
+}
+
+@MainActor
+final class ZoomBridge: NSObject {
+    static let shared = ZoomBridge()
+
+    @objc func zoomIn(_ sender: Any?) {
+        NotificationCenter.default.post(name: .markmeZoom, object: ReaderZoomAction.zoomIn.rawValue)
+    }
 }
 
 private struct WindowPlacement: NSViewRepresentable {

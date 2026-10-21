@@ -1,8 +1,9 @@
 import Foundation
 
 public enum PageShell {
-    public static func html(body: String, highlighter: String) -> String {
-        """
+    public static func html(body: String, highlighter: String, mermaid: String = "") -> String {
+        let diagrams = mermaid.isEmpty ? "" : mermaidMarkup(mermaid)
+        return """
         <!DOCTYPE html>
         <html>
         <head>
@@ -14,12 +15,27 @@ public enum PageShell {
         article { max-width: 68ch; margin: 0 auto; padding: 40px 28px 64px; user-select: text; }
         code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
         pre { background: #f4f4f5; border-radius: 10px; padding: 14px 16px; overflow: auto; }
-        .hljs-keyword, .hljs-selector-tag, .hljs-type { color: #ad3da4; }
-        .hljs-string, .hljs-attr { color: #d12f1b; }
-        .hljs-comment { color: #707f8c; }
-        .hljs-number, .hljs-literal { color: #272ad8; }
-        .hljs-title, .hljs-section, .hljs-name { color: #0e7c3a; }
-        .hljs-built_in, .hljs-meta { color: #804fb8; }
+        .hljs-keyword, .hljs-selector-tag { color: #ad3da4; font-weight: 600; }
+        .hljs-type, .hljs-title.class_, .hljs-class .hljs-title { color: #2457b5; }
+        .hljs-built_in { color: #6f42c1; }
+        .hljs-title, .hljs-section, .hljs-name, .hljs-function, .hljs-title.function_ { color: #0e7c3a; font-weight: 600; }
+        .hljs-string, .hljs-subst { color: #c41a16; }
+        .hljs-attr { color: #953800; }
+        .hljs-comment { color: #6e7781; font-style: italic; }
+        .hljs-number, .hljs-literal { color: #1a1aa6; }
+        .hljs-meta { color: #9a6700; }
+        .language-gherkin .hljs-keyword, .language-cucumber .hljs-keyword, .language-feature .hljs-keyword { color: #d1242f; font-weight: 700; }
+        .language-gherkin .hljs-symbol, .language-cucumber .hljs-symbol, .language-feature .hljs-symbol { color: #1f75cb; font-weight: 500; }
+        body.presenting article { max-width: 52rem; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 8vh 7vw 12vh; }
+        body.presenting .slide { display: none; }
+        body.presenting .slide.active { display: block; }
+        body.presenting h1 { font-size: 3rem; line-height: 1.12; letter-spacing: -0.03em; }
+        body.presenting h2 { font-size: 2.15rem; line-height: 1.2; }
+        body.presenting p, body.presenting li { font-size: 1.45rem; }
+        body.presenting pre { font-size: 1.02rem; max-height: 62vh; }
+        body.presenting .slide-count { position: fixed; right: 28px; bottom: 22px; color: #86868b; font-size: 13px; font-variant-numeric: tabular-nums; }
+        .mermaid { margin: 1.25rem 0; overflow-x: auto; }
+        .mermaid svg { max-width: 100%; height: auto; }
         a { color: -webkit-link; }
         blockquote { margin-left: 0; padding-left: 14px; border-left: 3px solid #d2d2d7; color: #424245; }
         table { border-collapse: collapse; width: 100%; }
@@ -29,22 +45,172 @@ public enum PageShell {
         @media (prefers-color-scheme: dark) {
           html, body { background: #1c1c1e; color: #f5f5f7; }
           pre { background: #2c2c2e; }
-          .hljs-keyword, .hljs-selector-tag, .hljs-type { color: #fc6a5d; }
-          .hljs-string, .hljs-attr { color: #fc6a5d; }
+          .hljs-keyword, .hljs-selector-tag { color: #ff7b72; }
+          .hljs-type, .hljs-title.class_, .hljs-class .hljs-title { color: #79c0ff; }
+          .hljs-built_in { color: #d2a8ff; }
+          .hljs-title, .hljs-section, .hljs-name, .hljs-function, .hljs-title.function_ { color: #7ee787; }
+          .hljs-string, .hljs-subst { color: #e6b089; }
+          .hljs-attr { color: #ffa657; }
           .hljs-comment { color: #8b9bab; }
           .hljs-number, .hljs-literal { color: #d0bf69; }
-          .hljs-title, .hljs-section, .hljs-name { color: #67b7a4; }
-          .hljs-built_in, .hljs-meta { color: #d0a8ff; }
+          .hljs-meta { color: #e3b341; }
+          body.presenting .slide-count { color: #98989d; }
+          .language-gherkin .hljs-keyword, .language-cucumber .hljs-keyword, .language-feature .hljs-keyword { color: #ff7b72; }
+          .language-gherkin .hljs-symbol, .language-cucumber .hljs-symbol, .language-feature .hljs-symbol { color: #79c0ff; }
           a { color: -webkit-link; }
           blockquote { border-left-color: #48484a; color: #d1d1d6; }
           th, td { border-bottom-color: #3a3a3c; }
         }
         </style>
-        <script>\(highlighter)</script>
-        <script>hljs.highlightAll();</script>
         </head>
-        <body><article>\(body)</article></body>
+        <body>
+        <article>\(body)</article>
+        <script>\(highlighter)</script>
+        <script>
+        if (window.hljs) {
+          hljs.registerLanguage("gherkin", function (hljs) {
+            return {
+              name: "Gherkin",
+              aliases: ["cucumber", "feature"],
+              contains: [
+                hljs.HASH_COMMENT_MODE,
+                { className: "symbol", begin: "@[^\\\\s@]+" },
+                { className: "keyword", begin: "(^|\\\\n)([ \\\\t]*)(Dado|Dada|Dados|Dadas|Quando|Então|Entao|Mas|Given|When|Then|And|But|E)(?=\\\\s|$)" },
+                { className: "string", begin: '"'.repeat(3), end: '"'.repeat(3) },
+                hljs.QUOTE_STRING_MODE
+              ]
+            };
+          });
+          document.querySelectorAll("pre code").forEach(function (node) {
+            var cls = node.className || "";
+            if (cls.indexOf("language-") !== -1 && !/language-(text|plaintext|plain)/.test(cls)) return;
+            var text = node.textContent || "";
+            if (/^[ \\t]*@\\S+/m.test(text) && /\\b(Dado|Given|Quando|When|Então|Entao|Then)\\b/.test(text)) {
+              node.classList.add("language-gherkin");
+            }
+          });
+          hljs.highlightAll();
+        }
+        </script>
+        <script>
+        window.markmePresent = function (on) {
+          var article = document.querySelector("article");
+          if (!article) return;
+          var existing = article.querySelectorAll(":scope > section.slide");
+          if (on) {
+            document.body.classList.add("presenting");
+            if (existing.length) return;
+            var groups = [[]];
+            Array.prototype.forEach.call(article.childNodes, function (node) {
+              if (node.nodeType === 1 && node.tagName === "HR") {
+                groups.push([]);
+                return;
+              }
+              groups[groups.length - 1].push(node);
+            });
+            groups = groups.filter(function (group) {
+              return group.some(function (node) {
+                return node.nodeType !== 3 || (node.textContent || "").trim() !== "";
+              });
+            });
+            if (!groups.length) groups = [[]];
+            groups.forEach(function (group) {
+              var slide = document.createElement("section");
+              slide.className = "slide";
+              group.forEach(function (node) { slide.appendChild(node); });
+              article.appendChild(slide);
+            });
+            var counter = document.createElement("div");
+            counter.className = "slide-count";
+            document.body.appendChild(counter);
+            window.markmeSlide(0);
+            return;
+          }
+          document.body.classList.remove("presenting");
+          Array.prototype.forEach.call(existing, function (slide) {
+            while (slide.firstChild) article.insertBefore(slide.firstChild, slide);
+            slide.remove();
+          });
+          var counter = document.querySelector(".slide-count");
+          if (counter) counter.remove();
+        };
+        window.markmeSlide = function (index) {
+          var slides = document.querySelectorAll("article > section.slide");
+          if (!slides.length) return 0;
+          index = Math.max(0, Math.min(slides.length - 1, index | 0));
+          Array.prototype.forEach.call(slides, function (slide, position) {
+            slide.classList.toggle("active", position === index);
+          });
+          var counter = document.querySelector(".slide-count");
+          if (counter) counter.textContent = (index + 1) + " / " + slides.length;
+          return index;
+        };
+        </script>
+        \(diagrams)
+        </body>
         </html>
+        """
+    }
+
+    public static func containsMermaidFence(_ text: String) -> Bool {
+        for line in text.split(whereSeparator: \.isNewline) {
+            var rest = Substring(line)
+            var spaces = 0
+            while rest.first == " " {
+                spaces += 1
+                if spaces > 3 { break }
+                rest = rest.dropFirst()
+            }
+            if spaces > 3 || rest.first == "\t" { continue }
+            let marker = rest.first
+            guard marker == "`" || marker == "~" else { continue }
+            var count = 0
+            while rest.first == marker {
+                count += 1
+                rest = rest.dropFirst()
+            }
+            guard count >= 3 else { continue }
+            while rest.first == " " || rest.first == "\t" {
+                rest = rest.dropFirst()
+            }
+            guard rest.lowercased().hasPrefix("mermaid") else { continue }
+            let after = rest.dropFirst("mermaid".count)
+            if after.isEmpty || after.first?.isWhitespace == true {
+                return true
+            }
+        }
+        return false
+    }
+
+    private static func mermaidMarkup(_ library: String) -> String {
+        let source = library.replacingOccurrences(
+            of: "</script",
+            with: "<\\/script",
+            options: .caseInsensitive
+        )
+        return """
+        <script>\(source)</script>
+        <script>
+        if (window.mermaid) {
+          document.querySelectorAll("pre code").forEach(function (node) {
+            if (!/(^|\\s)language-mermaid(\\s|$)/i.test(node.className || "")) return;
+            var pre = node.parentElement;
+            if (!pre) return;
+            var div = document.createElement("div");
+            div.className = "mermaid";
+            div.textContent = node.textContent || "";
+            pre.replaceWith(div);
+          });
+          var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          mermaid.initialize({
+            startOnLoad: false,
+            securityLevel: "strict",
+            theme: dark ? "dark" : "default",
+            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif"
+          });
+          mermaid.run({ querySelector: ".mermaid", suppressErrors: true }).catch(function () {});
+        }
+        </script>
         """
     }
 }

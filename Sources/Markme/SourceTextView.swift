@@ -6,6 +6,7 @@ struct SourceTextView: NSViewRepresentable {
     let text: String
     let findQuery: String
     let scrollToLine: Int?
+    let zoom: Double
     var onVisibleLine: (Int) -> Void
 
     func makeCoordinator() -> Coordinator {
@@ -23,7 +24,10 @@ struct SourceTextView: NSViewRepresentable {
         textView.isEditable = SourceTextConfiguration.isEditable
         textView.isSelectable = SourceTextConfiguration.isSelectable
         textView.isRichText = false
-        textView.font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        textView.font = NSFont.monospacedSystemFont(
+            ofSize: SourceTextConfiguration.fontSize(zoom: zoom),
+            weight: .regular
+        )
         textView.textContainerInset = NSSize(width: 12, height: 16)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -43,6 +47,7 @@ struct SourceTextView: NSViewRepresentable {
         ruler.clientView = textView
 
         context.coordinator.textView = textView
+        context.coordinator.lastZoom = zoom
         context.coordinator.ruler = ruler
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
@@ -57,6 +62,14 @@ struct SourceTextView: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.onVisibleLine = onVisibleLine
         guard let textView = scroll.documentView as? NSTextView else { return }
+        if context.coordinator.lastZoom != zoom {
+            context.coordinator.lastZoom = zoom
+            textView.font = NSFont.monospacedSystemFont(
+                ofSize: SourceTextConfiguration.fontSize(zoom: zoom),
+                weight: .regular
+            )
+            context.coordinator.ruler?.needsDisplay = true
+        }
         if textView.string != text {
             textView.string = text
             context.coordinator.ruler?.needsDisplay = true
@@ -84,6 +97,7 @@ struct SourceTextView: NSViewRepresentable {
         weak var ruler: LineNumberRuler?
         var lastFind = ""
         var lastScroll: Int?
+        var lastZoom = 1.0
 
         init(onVisibleLine: @escaping (Int) -> Void) {
             self.onVisibleLine = onVisibleLine
