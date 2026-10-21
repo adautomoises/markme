@@ -48,15 +48,7 @@ Shipped. The behavior is described under [Already in the app](#already-in-the-ap
 
 ### 4. A short contract agents can be pointed at
 
-The section [What to tell an agent](#what-to-tell-an-agent) is the contract. A person working in another repo can point the agent at this file. markme does not install itself into Claude, Copilot, or Grok, and it does not read their session logs.
-
-Opening a file from an agent is the command that already works:
-
-```sh
-open -a Markme path/to/note.md
-```
-
-A custom URL scheme can wait until that command is not enough.
+Shipped. [What to tell an agent](#what-to-tell-an-agent) is the contract. A person working in another repo can point an agent at this file. markme does not install itself into Claude, Copilot, or Grok, and it does not read their session logs. Opening a file is `open -a Markme path/to/note.md`. A custom URL scheme stays out.
 
 ### 5. Math, only on pages that contain it
 
