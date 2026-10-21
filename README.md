@@ -1,5 +1,9 @@
 # markme
 
+[![CI](https://github.com/vlrod/markme/actions/workflows/ci.yml/badge.svg)](https://github.com/vlrod/markme/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/github/license/vlrod/markme)](LICENSE)
+[![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)](https://github.com/vlrod/markme)
+
 A Markdown viewer for macOS. A double-click in the Finder opens the file already formatted. The window only reads: the text can be selected and copied, and it is not edited.
 
 Requires macOS 14 or later.
@@ -37,6 +41,12 @@ open -a "$PWD/Markme.app" Fixtures/weekend.md
 
 The files in `Fixtures/` are made-up notes for opening the viewer.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). The test status is on the [CI workflow](https://github.com/vlrod/markme/actions/workflows/ci.yml).
+
 ## License
 
 [MIT](LICENSE). Highlight.js, the Dart grammar, and Mermaid keep their own licenses. See [NOTICE](NOTICE).
+People working on markme follow the [code of conduct](CODE_OF_CONDUCT.md).
+Security reports go to the address in [SECURITY.md](SECURITY.md).
