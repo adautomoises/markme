@@ -25,12 +25,13 @@ public enum LinkResolver {
 
         let withoutQuery = href.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? href
         let path = withoutQuery.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? withoutQuery
-        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        let decoded = path.removingPercentEncoding ?? path
+        let ext = URL(fileURLWithPath: decoded).pathExtension.lowercased()
         guard markdownExtensions.contains(ext) else { return .ignore }
 
         let root = baseDirectory.standardizedFileURL.path
         let prefix = root.hasSuffix("/") ? root : root + "/"
-        return .markdownFile(URL(fileURLWithPath: prefix + path).standardizedFileURL)
+        return .markdownFile(URL(fileURLWithPath: prefix + decoded).standardizedFileURL)
     }
 }
 

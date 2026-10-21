@@ -11,8 +11,17 @@ public struct MarkdownPage: Equatable, Sendable {
 }
 
 public enum MarkdownRenderer {
-    public static func render(_ markdown: String) -> MarkdownPage {
-        MarkdownPage(htmlBody: assignHeadingIDs(fillEmptyImageAlt(sanitize(renderHTML(markdown)))))
+    public static func render(
+        _ markdown: String,
+        baseDirectory: URL? = nil,
+        languageCode: String = "en"
+    ) -> MarkdownPage {
+        let html = fillEmptyImageAlt(sanitize(renderHTML(markdown)))
+        let withFront = FrontMatter.apply(html: html, markdown: markdown)
+        let withIDs = assignHeadingIDs(withFront)
+        let withAlerts = AlertBlock.apply(html: withIDs, languageCode: languageCode)
+        let withLinks = Wikilink.apply(html: withAlerts, baseDirectory: baseDirectory)
+        return MarkdownPage(htmlBody: withLinks)
     }
 
     private static let allowedTags: Set<String> = [
