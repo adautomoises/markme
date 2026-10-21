@@ -41,9 +41,13 @@ open -a "$PWD/Markme.app" Fixtures/weekend.md
 
 The files in `Fixtures/` are made-up notes for opening the viewer.
 
+## Backlog
+
+markme stays a viewer. [docs/BACKLOG.md](docs/BACKLOG.md) is the prioritized list of ideas worth taking from [Nimbalyst](https://github.com/nimbalyst/nimbalyst): show an agent's edit on the page, copy a file location back to the agent, and render the Markdown those tools already write. Sessions, git, and editing stay out.
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). The test status is on the [CI workflow](https://github.com/vlrod/markme/actions/workflows/ci.yml).
+See [CONTRIBUTING.md](CONTRIBUTING.md). The test status is on the [CI workflow](https://github.com/vlrod/markme/actions/workflows/ci.yml). Agents working in this repository should read [AGENTS.md](AGENTS.md).
 
 ## License
 
