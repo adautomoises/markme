@@ -10,6 +10,7 @@ final class InfoPlistTests: XCTestCase {
         let data = try Data(contentsOf: url)
         let plist = try XCTUnwrap(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
         XCTAssertEqual(plist["CFBundleIdentifier"] as? String, "app.markme.viewer")
+        XCTAssertEqual(plist["CFBundleIconFile"] as? String, "AppIcon")
         XCTAssertEqual(plist["LSMinimumSystemVersion"] as? String, "14.0")
         let types = try XCTUnwrap(plist["CFBundleDocumentTypes"] as? [[String: Any]])
         let type = try XCTUnwrap(types.first)
