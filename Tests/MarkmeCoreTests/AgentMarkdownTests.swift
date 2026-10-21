@@ -99,6 +99,69 @@ final class AgentMarkdownTests: XCTestCase {
         XCTAssertTrue(html.contains("<code>[[plan]]</code>") || html.contains("[[plan]]"), html)
     }
 
+    func testAlertKeepsAnImageAndTheMarkerLine() {
+        let image = MarkdownRenderer.render("> [!NOTE]\n> ![](photo.png)\n").htmlBody
+        XCTAssertTrue(image.contains("<img"), image)
+        XCTAssertTrue(image.contains("alert-note"), image)
+        XCTAssertFalse(image.contains("[!NOTE]"), image)
+
+        let spaced = MarkdownRenderer.render("> [!NOTE]\n>\n> ![](photo.png)\n").htmlBody
+        XCTAssertTrue(spaced.contains("<img"), spaced)
+        XCTAssertTrue(spaced.contains("alert-note"), spaced)
+
+        let body = MarkdownRenderer.render("> [!NOTE]\n> The pump is on.\n").htmlBody
+        XCTAssertTrue(body.contains("data-sourcepos=\"1:"), body)
+        XCTAssertTrue(body.contains("\nThe pump is on."), body)
+        XCTAssertFalse(body.contains("[!NOTE]"), body)
+
+        let sameLine = MarkdownRenderer.render("> [!NOTE] The pump is on.\n").htmlBody
+        XCTAssertFalse(sameLine.contains(" The pump is on."), sameLine)
+        XCTAssertTrue(sameLine.contains("The pump is on."), sameLine)
+    }
+
+    func testWikilinkStaysTextWhenItLooksLikeAnImageOrHoldsABracket() throws {
+        let root = try makeWikiRoot(files: ["plan.md"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let image = MarkdownRenderer.render("![[plan]]\n", baseDirectory: root).htmlBody
+        XCTAssertFalse(image.contains("<img"), image)
+        XCTAssertTrue(image.contains("![[plan]]"), image)
+        XCTAssertFalse(image.contains("href=\"plan.md\""), image)
+
+        let label = MarkdownRenderer.render("[[plan|a]b]]\n", baseDirectory: root).htmlBody
+        XCTAssertTrue(label.contains("href=\"plan.md\""), label)
+        XCTAssertTrue(label.contains(">a]b</a>"), label)
+    }
+
+    func testWikilinkStaysLiteralInsideCode() throws {
+        let root = try makeWikiRoot(files: ["plan.md"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let samples = [
+            "    [[plan]]\n",
+            "\t[[plan]]\n",
+            "> ```\n> [[plan]]\n> ```\n",
+            "- ```\n  [[plan]]\n  ```\n",
+            "`[[plan]]\nstill`\n",
+            "```\n[[plan]]\n```\n",
+        ]
+        for source in samples {
+            let html = MarkdownRenderer.render(source, baseDirectory: root).htmlBody
+            XCTAssertFalse(html.contains("href=\"plan.md\""), "\(source)\n\(html)")
+            XCTAssertTrue(html.contains("[[plan]]"), "\(source)\n\(html)")
+        }
+    }
+
+    func testWikilinkPercentAndSpaceRoundTripsThroughTheResolver() throws {
+        let root = try makeWikiRoot(files: ["100% done.md"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let html = MarkdownRenderer.render("See [[100% done]].\n", baseDirectory: root).htmlBody
+        let href = try XCTUnwrap(firstHref(in: html), html)
+        let file = root.appendingPathComponent("100% done.md").standardizedFileURL
+        XCTAssertEqual(
+            LinkResolver.resolve(href: href, baseDirectory: root),
+            .markdownFile(file)
+        )
+    }
+
     func testWikilinkInTheSameFolderWinsOverAChild() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("markme-wiki-\(UUID().uuidString)")
         let nested = root.appendingPathComponent("notes")
@@ -109,5 +172,21 @@ final class AgentMarkdownTests: XCTestCase {
         let html = MarkdownRenderer.render("[[plan]]\n", baseDirectory: root).htmlBody
         XCTAssertTrue(html.contains("href=\"plan.md\""), html)
         XCTAssertFalse(html.contains("notes/plan.md"), html)
+    }
+
+    private func makeWikiRoot(files: [String]) throws -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("markme-wiki-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        for name in files {
+            try Data("x".utf8).write(to: root.appendingPathComponent(name))
+        }
+        return root
+    }
+
+    private func firstHref(in html: String) -> String? {
+        guard let start = html.range(of: "href=\"") else { return nil }
+        let rest = html[start.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else { return nil }
+        return String(rest[..<end])
     }
 }

@@ -56,7 +56,10 @@ enum AlertBlock {
             if character == "<" { inTag = true }
             if !removed, !inTag, html[cursor...].lowercased().hasPrefix(token) {
                 cursor = html.index(cursor, offsetBy: token.count)
-                if cursor < html.endIndex, html[cursor] == "\n" {
+                // The marker line stays in the paragraph. Page selection counts
+                // newlines from data-sourcepos, which still starts on that line.
+                // A marker sharing its line (`[!NOTE] text`) drops one leading space.
+                if cursor < html.endIndex, html[cursor] == " " {
                     cursor = html.index(after: cursor)
                 }
                 removed = true
@@ -83,7 +86,8 @@ enum AlertBlock {
                 break
             }
             let paragraph = String(html[start..<end])
-            if plainText(paragraph).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if plainText(paragraph).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !hasInnerElement(paragraph) {
                 cursor = end
                 continue
             }
@@ -112,6 +116,18 @@ enum AlertBlock {
         }
         guard open.hasSuffix(">") else { return open }
         return String(open.dropLast()) + " class=\"\(extra)\">"
+    }
+
+    /// An image, break, or other tag is still content. `plainText` skips every tag.
+    private static func hasInnerElement(_ paragraph: String) -> Bool {
+        guard let openEnd = paragraph.firstIndex(of: ">") else { return false }
+        let innerStart = paragraph.index(after: openEnd)
+        let suffix = "</p>"
+        let innerEnd = paragraph.hasSuffix(suffix)
+            ? paragraph.index(paragraph.endIndex, offsetBy: -suffix.count)
+            : paragraph.endIndex
+        guard innerStart < innerEnd else { return false }
+        return paragraph[innerStart..<innerEnd].contains("<")
     }
 
     private static func plainText(_ html: String) -> String {

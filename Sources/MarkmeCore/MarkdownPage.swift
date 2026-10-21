@@ -16,12 +16,12 @@ public enum MarkdownRenderer {
         baseDirectory: URL? = nil,
         languageCode: String = "en"
     ) -> MarkdownPage {
-        let source = Wikilink.expand(markdown, baseDirectory: baseDirectory)
-        let html = fillEmptyImageAlt(sanitize(renderHTML(source)))
+        let html = fillEmptyImageAlt(sanitize(renderHTML(markdown)))
         let withFront = FrontMatter.apply(html: html, markdown: markdown)
         let withIDs = assignHeadingIDs(withFront)
         let withAlerts = AlertBlock.apply(html: withIDs, languageCode: languageCode)
-        return MarkdownPage(htmlBody: withAlerts)
+        let withLinks = Wikilink.apply(html: withAlerts, baseDirectory: baseDirectory)
+        return MarkdownPage(htmlBody: withLinks)
     }
 
     private static let allowedTags: Set<String> = [

@@ -3,29 +3,42 @@ import Foundation
 enum Wikilink {
     private static let extensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mdwn"]
 
-    /// Replaces a wikilink with a relative Markdown link when that file is in the folder or one level down.
-    static func expand(_ markdown: String, baseDirectory: URL?, fileManager: FileManager = .default) -> String {
-        guard let baseDirectory else { return markdown }
-        let normalized = markdown
-            .replacingOccurrences(of: "\r\n", with: "\n")
-            .replacingOccurrences(of: "\r", with: "\n")
-        let lines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
-        var openFence: Character?
-        var fenceLength = 0
-        let expanded = lines.map { raw -> String in
-            let line = String(raw)
-            if let marker = openFence {
-                if closesFence(line, marker: marker, length: fenceLength) { openFence = nil }
-                return line
+    /// Replaces wikilinks in HTML text that is outside `pre` and `code`.
+    /// cmark has already classified indented code, nested fences, and multiline
+    /// spans, so those stay literal. `![[name]]` stays text. The link is an
+    /// anchor, not raw Markdown, and the path is percent-encoded once.
+    static func apply(html: String, baseDirectory: URL?, fileManager: FileManager = .default) -> String {
+        guard let baseDirectory else { return html }
+        var output = ""
+        var cursor = html.startIndex
+        var preDepth = 0
+        var codeDepth = 0
+        while cursor < html.endIndex {
+            if html[cursor] == "<", let tag = readTag(html, from: cursor) {
+                switch tag.name.lowercased() {
+                case "pre":
+                    if tag.closing { preDepth = max(0, preDepth - 1) }
+                    else if !tag.selfClosing { preDepth += 1 }
+                case "code":
+                    if tag.closing { codeDepth = max(0, codeDepth - 1) }
+                    else if !tag.selfClosing { codeDepth += 1 }
+                default:
+                    break
+                }
+                output.append(contentsOf: html[cursor..<tag.end])
+                cursor = tag.end
+                continue
             }
-            if let opened = openingFence(line) {
-                openFence = opened.marker
-                fenceLength = opened.length
-                return line
+            let next = html[cursor...].firstIndex(of: "<") ?? html.endIndex
+            let text = String(html[cursor..<next])
+            if preDepth == 0, codeDepth == 0 {
+                output.append(expandText(text, baseDirectory: baseDirectory, fileManager: fileManager))
+            } else {
+                output.append(text)
             }
-            return expandLine(line, baseDirectory: baseDirectory, fileManager: fileManager)
+            cursor = next
         }
-        return expanded.joined(separator: "\n")
+        return output
     }
 
     static func relativeTarget(name: String, baseDirectory: URL, fileManager: FileManager = .default) -> String? {
@@ -46,30 +59,21 @@ enum Wikilink {
         return relativePath(file, base: baseDirectory)
     }
 
-    private static func expandLine(_ line: String, baseDirectory: URL, fileManager: FileManager) -> String {
+    private static func expandText(_ text: String, baseDirectory: URL, fileManager: FileManager) -> String {
         var output = ""
-        var cursor = line.startIndex
-        while cursor < line.endIndex {
-            if line[cursor] == "`" {
-                let runEnd = backtickRunEnd(line, from: cursor)
-                let marker = line[cursor..<runEnd]
-                if let close = line.range(of: marker, range: runEnd..<line.endIndex) {
-                    output.append(contentsOf: line[cursor..<close.upperBound])
-                    cursor = close.upperBound
-                    continue
-                }
-            }
-            if line[cursor...].hasPrefix("[["), let link = parseLink(line, from: cursor) {
-                if let href = relativeTarget(name: link.name, baseDirectory: baseDirectory, fileManager: fileManager) {
-                    output.append("[\(link.label)](<\(href)>)")
-                } else {
-                    output.append(contentsOf: line[link.range])
-                }
+        var cursor = text.startIndex
+        while cursor < text.endIndex {
+            let precededByImage = cursor > text.startIndex && text[text.index(before: cursor)] == "!"
+            if !precededByImage,
+               text[cursor...].hasPrefix("[["),
+               let link = parseLink(text, from: cursor),
+               let href = relativeTarget(name: link.name, baseDirectory: baseDirectory, fileManager: fileManager) {
+                output.append("<a href=\"\(percentEncode(href))\">\(escape(link.label))</a>")
                 cursor = link.range.upperBound
                 continue
             }
-            output.append(line[cursor])
-            cursor = line.index(after: cursor)
+            output.append(text[cursor])
+            cursor = text.index(after: cursor)
         }
         return output
     }
@@ -80,11 +84,11 @@ enum Wikilink {
         var range: Range<String.Index>
     }
 
-    private static func parseLink(_ line: String, from start: String.Index) -> ParsedLink? {
-        guard line[start...].hasPrefix("[[") else { return nil }
-        let body = line.index(start, offsetBy: 2)
-        guard let close = line.range(of: "]]", range: body..<line.endIndex) else { return nil }
-        let inside = String(line[body..<close.lowerBound])
+    private static func parseLink(_ text: String, from start: String.Index) -> ParsedLink? {
+        guard text[start...].hasPrefix("[[") else { return nil }
+        let body = text.index(start, offsetBy: 2)
+        guard let close = text.range(of: "]]", range: body..<text.endIndex) else { return nil }
+        let inside = String(text[body..<close.lowerBound])
         guard !inside.isEmpty, !inside.contains("\n"), !inside.contains("[") else { return nil }
         let name: String
         let label: String
@@ -137,48 +141,63 @@ enum Wikilink {
         return String(full.dropFirst(prefix.count))
     }
 
-    private static func backtickRunEnd(_ line: String, from start: String.Index) -> String.Index {
-        var index = start
-        while index < line.endIndex, line[index] == "`" {
-            index = line.index(after: index)
-        }
-        return index
+    private struct Tag {
+        var name: String
+        var closing: Bool
+        var selfClosing: Bool
+        var end: String.Index
     }
 
-    private static func openingFence(_ line: String) -> (marker: Character, length: Int)? {
-        var index = line.startIndex
-        var spaces = 0
-        while index < line.endIndex, line[index] == " ", spaces < 4 {
-            spaces += 1
-            index = line.index(after: index)
+    private static func readTag(_ html: String, from start: String.Index) -> Tag? {
+        guard html[start] == "<" else { return nil }
+        if html[start...].hasPrefix("<!--") {
+            guard let end = html.range(of: "-->", range: start..<html.endIndex) else { return nil }
+            return Tag(name: "!", closing: false, selfClosing: true, end: end.upperBound)
         }
-        guard spaces <= 3, index < line.endIndex else { return nil }
-        let marker = line[index]
-        guard marker == "`" || marker == "~" else { return nil }
-        var length = 0
-        var rest = line[index...]
-        while rest.first == marker {
-            length += 1
-            rest = rest.dropFirst()
+        var cursor = html.index(after: start)
+        if cursor < html.endIndex, html[cursor] == "!" || html[cursor] == "?" {
+            guard let close = html[start...].firstIndex(of: ">") else { return nil }
+            return Tag(name: "!", closing: false, selfClosing: true, end: html.index(after: close))
         }
-        guard length >= 3, !rest.contains(marker) else { return nil }
-        return (marker, length)
+        var closing = false
+        if cursor < html.endIndex, html[cursor] == "/" {
+            closing = true
+            cursor = html.index(after: cursor)
+        }
+        let nameStart = cursor
+        while cursor < html.endIndex, html[cursor].isLetter || html[cursor].isNumber {
+            cursor = html.index(after: cursor)
+        }
+        guard cursor > nameStart, let close = html[start...].firstIndex(of: ">") else { return nil }
+        let end = html.index(after: close)
+        let selfClosing = html[html.index(before: close)] == "/"
+        return Tag(name: String(html[nameStart..<cursor]), closing: closing, selfClosing: selfClosing, end: end)
     }
 
-    private static func closesFence(_ line: String, marker: Character, length: Int) -> Bool {
-        var index = line.startIndex
-        var spaces = 0
-        while index < line.endIndex, line[index] == " ", spaces < 4 {
-            spaces += 1
-            index = line.index(after: index)
+    /// One encoding pass. Link resolution decodes once, so `%` must already be `%25`.
+    private static func percentEncode(_ path: String) -> String {
+        let hex = Array("0123456789ABCDEF")
+        var output = ""
+        for byte in path.utf8 {
+            let unreserved = (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122)
+                || (byte >= 48 && byte <= 57)
+                || byte == 45 || byte == 46 || byte == 95 || byte == 126 || byte == 47
+            if unreserved {
+                output.append(Character(UnicodeScalar(byte)))
+            } else {
+                output.append("%")
+                output.append(hex[Int(byte >> 4)])
+                output.append(hex[Int(byte & 0x0F)])
+            }
         }
-        guard spaces <= 3 else { return false }
-        var count = 0
-        var rest = line[index...]
-        while rest.first == marker {
-            count += 1
-            rest = rest.dropFirst()
-        }
-        return count >= length && rest.trimmingCharacters(in: .whitespaces).isEmpty
+        return output
+    }
+
+    private static func escape(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
     }
 }
