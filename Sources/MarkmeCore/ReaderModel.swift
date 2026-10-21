@@ -53,6 +53,12 @@ public struct ReaderModel: Equatable, Sendable {
     public var failureDetail: String
     public var mode: ReaderMode
     public var bannerDismissed: Bool
+    /// Marks for the latest change that has not been dismissed. Empty until a render adopts them.
+    public var changes: [ChangeSpan]
+    public var changeCursor: Int?
+    /// Text on screen before the latest successful edit. The diff runs from this baseline off the main thread.
+    public private(set) var changeBaseline: String?
+    public private(set) var changeRevision: Int
 
     public init(fileName: String, data: Data?, bannerDismissed: Bool) {
         self.fileName = fileName
@@ -61,12 +67,48 @@ public struct ReaderModel: Equatable, Sendable {
         self.text = ""
         self.failure = nil
         self.failureDetail = ""
+        self.changes = []
+        self.changeCursor = nil
+        self.changeBaseline = nil
+        self.changeRevision = 0
         apply(data)
     }
 
     public mutating func reload(data: Data?, failureDetail: String = "") {
+        let previous = text
         self.failureDetail = failureDetail
         apply(data)
+        guard failure == nil, text != previous else { return }
+        if changeBaseline == nil {
+            changeBaseline = previous
+        }
+        // The previous spans address the previous string. Drop them before the new diff is ready.
+        changes = []
+        changeCursor = nil
+        changeRevision += 1
+    }
+
+    /// Stores a diff computed for `revision`. A stale result, or one after Seen, is ignored.
+    public mutating func adoptChanges(_ spans: [ChangeSpan], revision: Int) {
+        guard revision == changeRevision, changeBaseline != nil else { return }
+        changes = spans
+        changeCursor = spans.isEmpty ? nil : 0
+        changeBaseline = nil
+    }
+
+    public mutating func dismissChanges() {
+        changes = []
+        changeCursor = nil
+        changeBaseline = nil
+        changeRevision += 1
+    }
+
+    public mutating func stepChange(by delta: Int) {
+        guard !changes.isEmpty, delta != 0 else { return }
+        let count = changes.count
+        let base = changeCursor ?? 0
+        let moved = delta % count
+        changeCursor = (base + moved + count) % count
     }
 
     public mutating func dismissBannerForever() {

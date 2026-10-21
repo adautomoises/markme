@@ -4,14 +4,14 @@ markme is the window that opens when a Markdown file is double-clicked. It stays
 
 Nimbalyst is a visual workspace: many agent sessions, git worktrees, a task board, a terminal, WYSIWYG editors, and a phone app. Its own markdown policy is the part that matches markme: the file on disk is the truth, the syntax is ordinary Markdown, and anything that needs a private format stays out. markme borrows that idea and leaves the workspace behind.
 
-The README describes the app as it is today. Items below are not built yet.
+The README describes the app as it is today. A shipped item says so. The rest are not built yet.
 
 ## Already in the app
 
 These overlap Nimbalyst and stay as they are.
 
 - The formatted page is the default. Text and side by side are one menu away.
-- The file reloads when it changes on disk. The reading position is kept.
+- The file reloads when it changes on disk. The reading position is kept. New lines are marked, a short marker shows where text was removed, and a bar steps through those marks. Seen clears them. The file is not rewritten.
 - GitHub-flavored Markdown: tables, task lists, strikethrough, footnotes, autolinks.
 - A `mermaid` fence becomes a diagram. Other fences are colored, including Gherkin, Dart, Flutter, and Kotlin.
 - A relative link to another Markdown file opens in markme. A web link opens in the browser.
@@ -34,11 +34,7 @@ These stay there. Importing them would turn markme into a project tool.
 
 ### 1. Show what the agent just changed
 
-When the file on disk changes, the page updates and the new regions are marked. Removed text leaves a short marker at that spot. Next and previous step through the marks. Dismissing them means the change has been seen. The file is not rewritten.
-
-This is Nimbalyst's red and green review, cut down to a viewer. There the agent writes the file immediately, Keep only clears the highlight, and Revert writes the old text back. markme does the highlight. Putting the old text back stays with the agent, or with git outside this app.
-
-The source map already ties a block on the page to lines in the file. The diff runs off the main thread. A page with no reload looks as it does today.
+Shipped. The behavior is described under [Already in the app](#already-in-the-app).
 
 ### 2. Copy a location an agent can use
 
