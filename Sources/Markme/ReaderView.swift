@@ -187,10 +187,17 @@ struct ReaderView: View {
                 if pageSelectionCollapsed { pageCaretLine = line }
             },
             onSelection: { line, collapsed in
-                pageCaretLine = line
+                if line > 0 { pageCaretLine = line }
                 pageSelectionCollapsed = collapsed
             }
         )
+        .onAppear {
+            pageSelectionCollapsed = true
+            pageCaretLine = 1
+        }
+        .onChange(of: pageHTML) { _, _ in
+            pageSelectionCollapsed = true
+        }
     }
 
     private var source: some View {

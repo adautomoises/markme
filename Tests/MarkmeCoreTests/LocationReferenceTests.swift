@@ -28,6 +28,15 @@ final class LocationReferenceTests: XCTestCase {
         XCTAssertEqual(LocationReference.headingLines(in: text), [5, 11])
     }
 
+    func testUnclosedLeadingRuleDoesNotHideHeadings() {
+        XCTAssertEqual(LocationReference.headingLines(in: "---\n# Only slide\n"), [2])
+    }
+
+    func testFrontMatterCanEndWithDots() {
+        let text = "---\ntitle: Plan\n...\n# Title\n"
+        XCTAssertEqual(LocationReference.headingLines(in: text), [4])
+    }
+
     func testReferenceIsRelativeToTheGitRoot() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("markme-loc-\(UUID().uuidString)")
         let docs = root.appendingPathComponent("docs")

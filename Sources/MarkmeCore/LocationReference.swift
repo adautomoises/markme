@@ -18,24 +18,16 @@ public enum LocationReference {
         let normalized = markdown
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")
+        let rawLines = normalized.split(separator: "\n", omittingEmptySubsequences: false)
+        let frontMatterEnd = closedFrontMatterEnd(rawLines)
         var lines: [Int] = []
         var openFence: Character?
         var fenceLength = 0
-        var frontMatter = false
-        var sawContent = false
         var number = 0
-        for raw in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
+        for raw in rawLines {
             number += 1
+            if number <= frontMatterEnd { continue }
             let line = String(raw)
-            if !sawContent, !frontMatter, line == "---" {
-                frontMatter = true
-                continue
-            }
-            sawContent = true
-            if frontMatter {
-                if line == "---" { frontMatter = false }
-                continue
-            }
             if let marker = openFence {
                 if closesFence(line, marker: marker, length: fenceLength) {
                     openFence = nil
@@ -52,6 +44,16 @@ public enum LocationReference {
             }
         }
         return lines
+    }
+
+    /// A leading `---` is front matter only when a later `---` or `...` closes it.
+    private static func closedFrontMatterEnd(_ lines: [Substring]) -> Int {
+        guard let first = lines.first, String(first) == "---" else { return 0 }
+        for (offset, raw) in lines.dropFirst().enumerated() {
+            let line = String(raw)
+            if line == "---" || line == "..." { return offset + 2 }
+        }
+        return 0
     }
 
     private static func projectPath(of fileURL: URL, fileManager: FileManager) -> String {
