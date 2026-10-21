@@ -438,7 +438,12 @@ struct ReaderView: View {
 
     private var ownsMenuAction: Bool {
         guard let hostWindow else { return NSApp.windows.count < 2 }
-        return hostWindow.isKeyWindow || hostWindow.isMainWindow
+        if hostWindow.isKeyWindow || hostWindow.isMainWindow { return true }
+        // Menu commands can arrive while the app is inactive. A hidden window
+        // that cannot become main sits beside the document, so the only visible
+        // document still owns the command.
+        let documents = NSApp.windows.filter { $0.isVisible && $0.canBecomeMain }
+        return documents.count == 1 && documents[0] === hostWindow
     }
 
     private func open(_ url: URL) {
