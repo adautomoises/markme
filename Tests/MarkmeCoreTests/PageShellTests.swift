@@ -52,7 +52,7 @@ final class PageShellTests: XCTestCase {
         XCTAssertTrue(PageShell.containsMermaidFence("   ```mermaid\ngraph TD\n   ```"))
         XCTAssertFalse(PageShell.containsMermaidFence("    ```mermaid\ngraph TD\n    ```"))
         XCTAssertFalse(PageShell.containsMermaidFence("```mermaidx\ngraph TD\n```"))
-        XCTAssertFalse(PageShell.containsMermaidFence("A palavra mermaid fica no texto.\n\n```swift\nlet mermaid = 1\n```"))
+        XCTAssertFalse(PageShell.containsMermaidFence("The word mermaid stays in the prose.\n\n```swift\nlet mermaid = 1\n```"))
     }
 
     func testDartGrammarCoversFlutter() throws {

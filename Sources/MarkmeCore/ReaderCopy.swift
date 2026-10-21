@@ -19,6 +19,7 @@ public enum CopyKey: String, Sendable {
 }
 
 public enum ReaderCopy {
+    /// Interface copy. Portuguese when the language code starts with "pt", English otherwise.
     public static func string(_ key: CopyKey, languageCode: String) -> String {
         let portuguese = languageCode.lowercased().hasPrefix("pt")
         switch key {

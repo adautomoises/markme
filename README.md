@@ -1,40 +1,42 @@
 # markme
 
-Leitor de Markdown para macOS. Um dois cliques no Finder abre o arquivo já formatado. A janela só lê: o texto pode ser selecionado e copiado, e não é editado.
+A Markdown viewer for macOS. A double-click in the Finder opens the file already formatted. The window only reads: the text can be selected and copied, and it is not edited.
 
-Precisa do macOS 14 ou mais novo.
+Requires macOS 14 or later.
 
-## Na janela
+## In the window
 
-A abertura fica na página. Enquanto a janela está aberta, o menu Visualizar troca o modo:
+A new window opens on the page. While that window stays open, the View menu switches the mode:
 
-| Modo | Atalho |
+| Mode | Shortcut |
 | --- | --- |
-| Texto | ⌘1 |
-| Lado a lado | ⌘2 |
-| Página | ⌘3 |
-| Apresentação | ⌘4 |
+| Text | ⌘1 |
+| Side by side | ⌘2 |
+| Page | ⌘3 |
+| Presentation | ⌘4 |
 
-Na apresentação, cada `---` do markdown começa um slide. A seta para a direita, espaço e Return avançam. A seta para a esquerda volta. Escape retorna à página.
+On a Mac set to Portuguese, those labels are Texto, Lado a lado, Página, and Apresentação. Every other language uses the English labels.
 
-O zoom fica no mesmo menu: aumentar (⌘+), diminuir (⌘-) e tamanho real (⌘0). Command com a rodinha do mouse usa o mesmo zoom.
+In presentation, each `---` in the Markdown starts a slide. Right arrow, space, and Return advance. Left arrow goes back. Escape returns to the page.
 
-A página colore o código, inclusive Dart, Flutter e Kotlin. Um bloco `mermaid` vira diagrama. Um bloco Gherkin colore as tags e as palavras de passo.
+Zoom is in the same menu: Zoom In (⌘+), Zoom Out (⌘−), and Actual Size (⌘0). Command and the mouse wheel use the same zoom.
 
-Extensões: `md`, `markdown`, `mdown`, `mkd`, `mdwn`. Só UTF-8. Um arquivo, uma janela.
+The page colors code, including Dart, Flutter, and Kotlin. A `mermaid` fence becomes a diagram. A Gherkin fence colors the tags and the step words.
 
-## Compilar
+Extensions: `md`, `markdown`, `mdown`, `mkd`, `mdwn`. UTF-8 only. One file, one window.
+
+## Build
 
 ```sh
 swift test
 scripts/package-app.sh
-open -a "$PWD/Markme.app" Fixtures/fim-de-semana.md
+open -a "$PWD/Markme.app" Fixtures/weekend.md
 ```
 
-`scripts/package-app.sh` gera `Markme.app` com assinatura ad hoc desta máquina. A pasta do app não entra no git.
+`scripts/package-app.sh` builds `Markme.app` and ad-hoc signs it on this machine. The app bundle is not committed.
 
-Os exemplos em `Fixtures/` são texto inventado para abrir o leitor.
+The files in `Fixtures/` are made-up notes for opening the viewer.
 
-## Licença
+## License
 
-[MIT](LICENSE). Highlight.js, a gramática Dart e o Mermaid têm licença própria. Os avisos estão em [NOTICE](NOTICE).
+[MIT](LICENSE). Highlight.js, the Dart grammar, and Mermaid keep their own licenses. See [NOTICE](NOTICE).

@@ -3,9 +3,9 @@ import XCTest
 
 final class ReaderModelTests: XCTestCase {
     func testNewModelOpensOnPage() {
-        let model = ReaderModel(fileName: "a.md", data: Data("olá".utf8), bannerDismissed: false)
+        let model = ReaderModel(fileName: "a.md", data: Data("hello".utf8), bannerDismissed: false)
         XCTAssertEqual(model.mode, .page)
-        XCTAssertEqual(model.text, "olá")
+        XCTAssertEqual(model.text, "hello")
         XCTAssertNil(model.failure)
         XCTAssertTrue(model.showsBanner)
     }
@@ -28,24 +28,24 @@ final class ReaderModelTests: XCTestCase {
     }
 
     func testReloadKeepsMode() {
-        var model = ReaderModel(fileName: "a.md", data: Data("antes".utf8), bannerDismissed: true)
+        var model = ReaderModel(fileName: "a.md", data: Data("before".utf8), bannerDismissed: true)
         model.mode = .source
-        model.reload(data: Data("depois".utf8))
+        model.reload(data: Data("after".utf8))
         XCTAssertEqual(model.mode, .source)
-        XCTAssertEqual(model.text, "depois")
+        XCTAssertEqual(model.text, "after")
         XCTAssertNil(model.failure)
-        model.reload(data: nil, failureDetail: "Permissão negada")
+        model.reload(data: nil, failureDetail: "Permission denied")
         XCTAssertEqual(model.mode, .source)
-        XCTAssertEqual(model.text, "depois")
+        XCTAssertEqual(model.text, "after")
         XCTAssertEqual(model.failure, .unreadable)
-        XCTAssertEqual(model.failureDetail, "Permissão negada")
+        XCTAssertEqual(model.failureDetail, "Permission denied")
     }
 
     func testReloadOfInvalidUTF8KeepsTheText() {
-        var model = ReaderModel(fileName: "a.md", data: Data("ainda aqui".utf8), bannerDismissed: true)
+        var model = ReaderModel(fileName: "a.md", data: Data("still here".utf8), bannerDismissed: true)
         model.reload(data: Data([0xFF, 0xFE]))
         XCTAssertEqual(model.failure, .notUTF8)
-        XCTAssertEqual(model.text, "ainda aqui")
+        XCTAssertEqual(model.text, "still here")
     }
 
     func testDismissBannerStaysDismissed() {

@@ -8,13 +8,13 @@
 
 **Tech Stack:** Swift 6.1, SwiftUI, WebKit, AppKit, swift-cmark 0.9.0, highlight.js 11 vendored in the app, macOS 14+.
 
-**Spec:** `docs/superpowers/specs/2026-10-20-markme-visualizador-design.md`
+**Spec:** `docs/superpowers/specs/2026-10-20-markme-viewer-design.md`
 
 ## Global Constraints
 
 - Version 1.0 only reads. No path in the interface writes the file. Cut and paste stay unavailable. Copy stays available.
-- Every new window opens in Página. Switching mode lasts until that window closes.
-- Button order, left to right: Texto (Command-1), Lado a lado (Command-2), Página (Command-3).
+- Every new window opens on Page. Switching mode lasts until that window closes.
+- Button order, left to right: Text (Command-1), Side by side (Command-2), Page (Command-3). On a Portuguese Mac the labels are Texto, Lado a lado, and Página.
 - Extensions: `md`, `markdown`, `mdown`, `mkd`, `mdwn`. Not `mdx`. Not `txt`.
 - Encoding is UTF-8. Any other byte sequence shows "Este arquivo não está em texto UTF-8." when the Mac language is Portuguese.
 - Empty file: blank page, file name in the title, no empty-state illustration.
@@ -32,9 +32,9 @@
 
 - Mixed-case `<SCRIPT>` and an `onerror` attribute must not survive in the page HTML. Pinned in Task 2.
 - A `javascript:` link must not survive as a URL. Pinned in Task 2.
-- A new file opens on Página even when the value `.source` exists in the type. Pinned in Task 4.
+- A new file opens on Page even when the value `.source` exists in the type. Pinned in Task 4.
 - Rereading the file after an outside edit keeps the current mode. Pinned in Task 4.
-- A relative link such as `sub/guia.md` is a markdown file to open, not a browser URL and not a navigation inside the page. Pinned in Task 3.
+- A relative link such as `sub/guide.md` is a markdown file to open, not a browser URL and not a navigation inside the page. Pinned in Task 3.
 
 ---
 
@@ -82,18 +82,18 @@ import XCTest
 final class MarkdownPageTests: XCTestCase {
     func testEverydayMarkdown() {
         let source = """
-        # Casa
+        # House
 
-        Texto *itálico* e **forte** e ~~velho~~.
+        Text *italic* and **strong** and ~~old~~.
 
         - um
         - dois
 
         1. primeiro
 
-        > citação
+        > quote
 
-        `linha`
+        `line`
 
         ---
 
@@ -116,9 +116,9 @@ final class MarkdownPageTests: XCTestCase {
         let source = """
         | Item | Qtd |
         | --- | --- |
-        | Leite | 2 |
+        | Milk | 2 |
 
-        - [x] botija
+        - [x] cylinder
         - [ ] caixa
 
         Texto [^1].
@@ -129,7 +129,7 @@ final class MarkdownPageTests: XCTestCase {
         """
         let html = MarkdownRenderer.render(source).htmlBody
         XCTAssertTrue(html.contains("<table"))
-        XCTAssertTrue(html.contains("Leite"))
+        XCTAssertTrue(html.contains("Milk"))
         XCTAssertTrue(html.contains("checkbox"))
         XCTAssertTrue(html.contains("Origem"))
         XCTAssertTrue(html.contains("Depois"))
@@ -149,7 +149,7 @@ final class MarkdownPageTests: XCTestCase {
     }
 
     func testSourcePositionIsMarked() {
-        let html = MarkdownRenderer.render("# Casa\n\nParágrafo.\n").htmlBody
+        let html = MarkdownRenderer.render("# House\n\nParagraph.\n").htmlBody
         XCTAssertTrue(html.contains("data-sourcepos=\"1:"))
     }
 
@@ -160,10 +160,10 @@ final class MarkdownPageTests: XCTestCase {
     }
 
     func testThousandsOfLinesStillRenderTheEnd() {
-        var lines = Array(repeating: "linha", count: 5000)
-        lines.append("## Fim")
+        var lines = Array(repeating: "line", count: 5000)
+        lines.append("## End")
         let html = MarkdownRenderer.render(lines.joined(separator: "\n")).htmlBody
-        XCTAssertTrue(html.contains("Fim"))
+        XCTAssertTrue(html.contains("End"))
     }
 }
 ```
@@ -267,16 +267,16 @@ git commit -m "fix: strip active HTML from rendered markdown"
 
 ```swift
 func testResolve() {
-    let base = URL(fileURLWithPath: "/tmp/notas")
+    let base = URL(fileURLWithPath: "/tmp/notes")
     XCTAssertEqual(LinkResolver.resolve(href: "https://example.com/a", baseDirectory: base), .browser(URL(string: "https://example.com/a")!))
     XCTAssertEqual(LinkResolver.resolve(href: "http://example.com", baseDirectory: base), .browser(URL(string: "http://example.com")!))
     XCTAssertEqual(LinkResolver.resolve(href: "#compras", baseDirectory: base), .anchor("compras"))
-    XCTAssertEqual(LinkResolver.resolve(href: "guia.md", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notas/guia.md")))
-    XCTAssertEqual(LinkResolver.resolve(href: "Guia.MD", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notas/Guia.MD")))
-    XCTAssertEqual(LinkResolver.resolve(href: "sub/guia.mdown", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notas/sub/guia.mdown")))
-    XCTAssertEqual(LinkResolver.resolve(href: "nota.markdown", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notas/nota.markdown")))
-    XCTAssertEqual(LinkResolver.resolve(href: "a.mkd", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notas/a.mkd")))
-    XCTAssertEqual(LinkResolver.resolve(href: "a.mdwn", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notas/a.mdwn")))
+    XCTAssertEqual(LinkResolver.resolve(href: "guide.md", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notes/guide.md")))
+    XCTAssertEqual(LinkResolver.resolve(href: "Guide.MD", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notes/Guide.MD")))
+    XCTAssertEqual(LinkResolver.resolve(href: "sub/guide.mdown", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notes/sub/guide.mdown")))
+    XCTAssertEqual(LinkResolver.resolve(href: "note.markdown", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notes/note.markdown")))
+    XCTAssertEqual(LinkResolver.resolve(href: "a.mkd", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notes/a.mkd")))
+    XCTAssertEqual(LinkResolver.resolve(href: "a.mdwn", baseDirectory: base), .markdownFile(URL(fileURLWithPath: "/tmp/notes/a.mdwn")))
     XCTAssertEqual(LinkResolver.resolve(href: "mailto:a@b.c", baseDirectory: base), .ignore)
     XCTAssertEqual(LinkResolver.resolve(href: "javascript:alert(1)", baseDirectory: base), .ignore)
 }
@@ -344,9 +344,9 @@ git commit -m "feat: classify links and map source lines"
 
 ```swift
 func testNewModelOpensOnPage() {
-    let model = ReaderModel(fileName: "a.md", data: Data("olá".utf8), bannerDismissed: false)
+    let model = ReaderModel(fileName: "a.md", data: Data("hello".utf8), bannerDismissed: false)
     XCTAssertEqual(model.mode, .page)
-    XCTAssertEqual(model.text, "olá")
+    XCTAssertEqual(model.text, "hello")
     XCTAssertNil(model.failure)
     XCTAssertTrue(model.showsBanner)
 }
@@ -618,7 +618,7 @@ Expected: PASS.
 
 - [ ] **Step 2: Add the banner, the menu, and the file watch**
 
-The banner is a bar under the toolbar, not a modal. Copy comes from `bannerQuestion`, `bannerNotNow`, and `bannerAccept`. `showsBanner` decides visibility. The model is created with `bannerDismissed` read from `UserDefaults` key `markme.bannerDismissed`. "Agora não" calls `dismissBannerForever()` and sets that key to true. It does not return. "Usar como padrão" calls `DefaultReader.request()`. The Visualizar menu item uses `menuMakeDefault` and the same call.
+The banner is a bar under the toolbar, not a modal. Copy comes from `bannerQuestion`, `bannerNotNow`, and `bannerAccept`. `showsBanner` decides visibility. The model is created with `bannerDismissed` read from `UserDefaults` key `markme.bannerDismissed`. "Not now" calls `dismissBannerForever()` and sets that key to true. It does not return. "Use as default" calls `DefaultReader.request()`. The View menu item uses `menuMakeDefault` and the same call. On a Portuguese Mac those labels are "Agora não", "Usar como padrão", and the menu title is Visualizar.
 
 `DefaultReader.request()` calls `NSWorkspace.shared.setDefaultApplication(at: Bundle.main.bundleURL, toOpenContentType:)` for `net.daringfireball.markdown` and each imported extension UTI. The system may ask the person to confirm. The app does not change the default by itself at launch.
 
@@ -629,7 +629,7 @@ Watch the open file with `DispatchSource` for write, rename, delete, and link. D
 Run: `bash scripts/package-app.sh`
 Expected: exit 0.
 
-Open a markdown file. The banner is visible the first time and stays gone after "Agora não". Edit the same file in another program and save: the page updates and the current mode stays. Move the file to the Trash: the window shows the unreadable sentence and stays open.
+Open a markdown file. The banner is visible the first time and stays gone after "Not now". Edit the same file in another program and save: the page updates and the current mode stays. Move the file to the Trash: the window shows the unreadable sentence and stays open.
 
 - [ ] **Step 4: Commit**
 

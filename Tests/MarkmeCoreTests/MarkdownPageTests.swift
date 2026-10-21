@@ -4,18 +4,18 @@ import XCTest
 final class MarkdownPageTests: XCTestCase {
     func testEverydayMarkdown() {
         let source = """
-        # Casa
+        # House
 
-        Texto *itálico* e **forte** e ~~velho~~.
+        Text *italic* and **strong** and ~~old~~.
 
-        - um
-        - dois
+        - one
+        - two
 
-        1. primeiro
+        1. first
 
-        > citação
+        > quote
 
-        `linha`
+        `line`
 
         ---
 
@@ -36,25 +36,25 @@ final class MarkdownPageTests: XCTestCase {
 
     func testTableTaskAndFootnoteBodySurvive() {
         let source = """
-        | Item | Qtd |
+        | Item | Qty |
         | --- | --- |
-        | Leite | 2 |
+        | Milk | 2 |
 
-        - [x] botija
-        - [ ] caixa
+        - [x] cylinder
+        - [ ] tank
 
-        Texto [^1].
+        Text [^1].
 
-        [^1]: Origem
+        [^1]: Source
 
-        ## Depois
+        ## After
         """
         let html = MarkdownRenderer.render(source).htmlBody
         XCTAssertTrue(html.contains("<table"))
-        XCTAssertTrue(html.contains("Leite"))
+        XCTAssertTrue(html.contains("Milk"))
         XCTAssertTrue(html.contains("checkbox"))
-        XCTAssertTrue(html.contains("Origem"))
-        XCTAssertTrue(html.contains("Depois"))
+        XCTAssertTrue(html.contains("Source"))
+        XCTAssertTrue(html.contains("After"))
     }
 
     func testFencedCodeCarriesLanguageAndPlainFenceDoesNot() {
@@ -71,28 +71,28 @@ final class MarkdownPageTests: XCTestCase {
     }
 
     func testSourcePositionIsMarked() {
-        let html = MarkdownRenderer.render("# Casa\n\nParágrafo.\n").htmlBody
+        let html = MarkdownRenderer.render("# House\n\nParagraph.\n").htmlBody
         XCTAssertTrue(html.contains("data-sourcepos=\"1:"))
     }
 
     func testHeadingGetsAnchorId() {
-        let html = MarkdownRenderer.render("## Antes de sair\n").htmlBody
-        XCTAssertTrue(html.contains("id=\"antes-de-sair\""))
+        let html = MarkdownRenderer.render("## Before leaving\n").htmlBody
+        XCTAssertTrue(html.contains("id=\"before-leaving\""))
     }
 
     func testImageKeepsItsPathAsText() {
-        let html = MarkdownRenderer.render("![](fotos/planta.png)").htmlBody
-        XCTAssertTrue(html.contains("fotos/planta.png"))
-        XCTAssertTrue(html.contains("alt=\"fotos/planta.png\""))
+        let html = MarkdownRenderer.render("![](photos/plan.png)").htmlBody
+        XCTAssertTrue(html.contains("photos/plan.png"))
+        XCTAssertTrue(html.contains("alt=\"photos/plan.png\""))
     }
 
     func testDangerousHTMLIsStripped() {
         let html = MarkdownRenderer.render(
-            "<script>alert(1)</script><ScRiPt>alert(2)</ScRiPt><p onclick=\"alert(3)\">oi</p><img src=\"a.png\" onerror=\"alert(4)\"><iframe src=\"https://evil.test\"></iframe><object data=\"x\"></object><embed src=\"y\"></embed><a href=\"javascript:alert(5)\">x</a><strong>negrito</strong>texto"
+            "<script>alert(1)</script><ScRiPt>alert(2)</ScRiPt><p onclick=\"alert(3)\">hi</p><img src=\"a.png\" onerror=\"alert(4)\"><iframe src=\"https://evil.test\"></iframe><object data=\"x\"></object><embed src=\"y\"></embed><a href=\"javascript:alert(5)\">x</a><strong>bold</strong>text"
         ).htmlBody
-        XCTAssertTrue(html.contains("oi"))
-        XCTAssertTrue(html.contains("negrito"))
-        XCTAssertTrue(html.contains("texto"))
+        XCTAssertTrue(html.contains("hi"))
+        XCTAssertTrue(html.contains("bold"))
+        XCTAssertTrue(html.contains("text"))
         XCTAssertTrue(html.contains("a.png"))
         XCTAssertFalse(html.lowercased().contains("<script"))
         XCTAssertFalse(html.contains("alert(1)"))
@@ -142,14 +142,14 @@ final class MarkdownPageTests: XCTestCase {
     }
 
     func testTaskCheckboxIsDisabled() {
-        let html = MarkdownRenderer.render("- [ ] caixa\n").htmlBody
+        let html = MarkdownRenderer.render("- [ ] tank\n").htmlBody
         XCTAssertTrue(html.contains("disabled"))
     }
 
     func testThousandsOfLinesStillRenderTheEnd() {
-        var lines = Array(repeating: "linha", count: 5000)
-        lines.append("## Fim")
+        var lines = Array(repeating: "line", count: 5000)
+        lines.append("## End")
         let html = MarkdownRenderer.render(lines.joined(separator: "\n")).htmlBody
-        XCTAssertTrue(html.contains("Fim"))
+        XCTAssertTrue(html.contains("End"))
     }
 }
