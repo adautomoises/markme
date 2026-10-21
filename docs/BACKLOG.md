@@ -12,6 +12,7 @@ These overlap Nimbalyst and stay as they are.
 
 - The formatted page is the default. Text and side by side are one menu away.
 - The file reloads when it changes on disk. The reading position is kept. New lines are marked, a short marker shows where text was removed, and a bar steps through those marks. Seen clears them. The file is not rewritten.
+- Copy Location puts `path:line` on the clipboard. A selection uses that line. A caret uses the heading above it. Inside a git checkout the path is relative to the checkout root. Nothing is launched.
 - GitHub-flavored Markdown: tables, task lists, strikethrough, footnotes, autolinks.
 - A `mermaid` fence becomes a diagram. Other fences are colored, including Gherkin, Dart, Flutter, and Kotlin.
 - A relative link to another Markdown file opens in markme. A web link opens in the browser.
@@ -38,9 +39,7 @@ Shipped. The behavior is described under [Already in the app](#already-in-the-ap
 
 ### 2. Copy a location an agent can use
 
-From a selection or a heading, copy a reference such as `docs/plan.md:42`. The person pastes it into Claude Code, Copilot, Grok, or another agent. Nimbalyst starts a session with `@file` from the open document. markme only copies the reference. It does not start an agent and it does not embed a chat.
-
-The same copy works in Text, side by side, and Page. The line number comes from the source map.
+Shipped. The behavior is described under [Already in the app](#already-in-the-app).
 
 ### 3. Render the Markdown agents already write
 

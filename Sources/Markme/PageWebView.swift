@@ -17,9 +17,10 @@ struct PageWebView: NSViewRepresentable {
     var onSlide: (Int) -> Void
     var onLink: (URL) -> Void
     var onVisibleLine: (Int) -> Void
+    var onSelection: (Int, Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onLink: onLink, onVisibleLine: onVisibleLine, onSlide: onSlide)
+        Coordinator(onLink: onLink, onVisibleLine: onVisibleLine, onSelection: onSelection, onSlide: onSlide)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -36,6 +37,7 @@ struct PageWebView: NSViewRepresentable {
     func updateNSView(_ view: WKWebView, context: Context) {
         context.coordinator.onLink = onLink
         context.coordinator.onVisibleLine = onVisibleLine
+        context.coordinator.onSelection = onSelection
         context.coordinator.onSlide = onSlide
         context.coordinator.pageZoom = zoom
         if abs(view.pageZoom - zoom) > 0.001 {
@@ -93,6 +95,7 @@ struct PageWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onLink: (URL) -> Void
         var onVisibleLine: (Int) -> Void
+        var onSelection: (Int, Bool) -> Void
         var onSlide: (Int) -> Void
         var lastHTML: String?
         var lastBase: URL?
@@ -112,29 +115,65 @@ struct PageWebView: NSViewRepresentable {
         func applyPresentation(in webView: WKWebView) {
             let flag = presenting ? "true" : "false"
             let requested = slideIndex
+            let reportCaret = presenting
             webView.evaluateJavaScript(
-                "(function () { if (window.markmePresent) window.markmePresent(\(flag)); return window.markmeSlide ? window.markmeSlide(\(requested)) : 0; })()"
+                """
+                (function () {
+                  if (window.markmePresent) window.markmePresent(\(flag));
+                  var index = window.markmeSlide ? window.markmeSlide(\(requested)) : 0;
+                  var line = 0;
+                  var slide = document.querySelector('article > section.slide.active');
+                  if (slide) {
+                    var node = slide.querySelector('[data-sourcepos]');
+                    if (node) {
+                      var start = parseInt((node.getAttribute('data-sourcepos') || '').split(':')[0], 10);
+                      if (!isNaN(start)) line = start;
+                    }
+                  }
+                  return { index: index, line: line };
+                })()
+                """
             ) { value, _ in
-                let shown: Int?
-                if let number = value as? Int {
-                    shown = number
-                } else if let number = value as? NSNumber {
-                    shown = number.intValue
-                } else {
-                    shown = nil
+                let payload = value as? [String: Any]
+                let shown = Self.scriptInt(payload?["index"])
+                let line = Self.scriptInt(payload?["line"]) ?? 0
+                if reportCaret, line > 0 {
+                    self.onSelection(line, true)
                 }
                 guard let shown, shown != requested else { return }
                 self.onSlide(shown)
             }
         }
 
-        init(onLink: @escaping (URL) -> Void, onVisibleLine: @escaping (Int) -> Void, onSlide: @escaping (Int) -> Void) {
+        private static func scriptInt(_ value: Any?) -> Int? {
+            if let number = value as? Int { return number }
+            if let number = value as? NSNumber { return number.intValue }
+            return nil
+        }
+
+        init(
+            onLink: @escaping (URL) -> Void,
+            onVisibleLine: @escaping (Int) -> Void,
+            onSelection: @escaping (Int, Bool) -> Void,
+            onSlide: @escaping (Int) -> Void
+        ) {
             self.onLink = onLink
             self.onVisibleLine = onVisibleLine
+            self.onSelection = onSelection
             self.onSlide = onSlide
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+            if let body = message.body as? [String: Any], (body["kind"] as? String) == "selection" {
+                let line = (body["line"] as? NSNumber)?.intValue ?? (body["line"] as? Int) ?? 0
+                let collapsed = (body["collapsed"] as? NSNumber)?.boolValue ?? (body["collapsed"] as? Bool) ?? true
+                if line > 0 {
+                    onSelection(line, collapsed)
+                } else {
+                    onSelection(0, true)
+                }
+                return
+            }
             let line: Int?
             if let value = message.body as? Int {
                 line = value
@@ -197,11 +236,83 @@ struct PageWebView: NSViewRepresentable {
         if (!window.__markme) {
           window.__markme = true;
           const lineOf = (node) => parseInt((node.getAttribute('data-sourcepos') || '').split(':')[0], 10);
+          const sourcePos = (node) => {
+            const match = (node.getAttribute('data-sourcepos') || '').match(/^(\\d+):\\d+-(\\d+):\\d+$/);
+            if (!match) return null;
+            return { start: parseInt(match[1], 10), end: parseInt(match[2], 10) };
+          };
+          const fenceLead = (el) => {
+            if (!el || el.tagName !== 'PRE') return 0;
+            const pos = sourcePos(el);
+            if (!pos) return 0;
+            const text = el.textContent || '';
+            const parts = text.split('\\n');
+            if (text.endsWith('\\n') && parts.length && parts[parts.length - 1] === '') parts.pop();
+            const span = pos.end - pos.start + 1;
+            return parts.length < span ? Math.floor((span - parts.length) / 2) : 0;
+          };
+          const newlines = (text) => (text.match(/\\n/g) || []).length;
+          const lineAt = (container, offset) => {
+            const node = container;
+            if (!node) return 0;
+            let el = node.nodeType === 3 ? node.parentElement : node;
+            while (el && el.nodeType === 1 && !el.getAttribute('data-sourcepos')) el = el.parentElement;
+            if (!el || !el.contains(node)) return 0;
+            const pos = sourcePos(el);
+            if (!pos) return 0;
+            let count = 0;
+            let skipOneNewline = false;
+            const take = (text) => {
+              let rest = text;
+              if (skipOneNewline && rest.charAt(0) === '\\n') {
+                rest = rest.slice(1);
+                skipOneNewline = false;
+              } else {
+                skipOneNewline = false;
+              }
+              count += newlines(rest);
+            };
+            const visit = (current) => {
+              if (current === node && current.nodeType === 3) {
+                take((current.textContent || '').slice(0, offset));
+                return true;
+              }
+              if (current === node && current.nodeType === 1) {
+                const kids = current.childNodes;
+                for (let i = 0; i < offset && i < kids.length; i++) visit(kids[i]);
+                return true;
+              }
+              if (current.nodeType === 3) {
+                take(current.textContent || '');
+                return false;
+              }
+              if (current.nodeType === 1 && current.tagName === 'BR') {
+                count += 1;
+                skipOneNewline = true;
+                return false;
+              }
+              const kids = current.childNodes;
+              for (let i = 0; i < kids.length; i++) {
+                if (visit(kids[i])) return true;
+              }
+              return false;
+            };
+            visit(el);
+            return pos.start + fenceLead(el) + count;
+          };
           const report = () => {
+            if (document.body.classList.contains('presenting')) {
+              const slide = document.querySelector('article > section.slide.active');
+              const node = slide && slide.querySelector('[data-sourcepos]');
+              const line = node ? lineOf(node) : 0;
+              if (line) window.webkit.messageHandlers.markme.postMessage(line);
+              return;
+            }
             const nodes = document.querySelectorAll('[data-sourcepos]');
             let line = 1;
             let best = -1e9;
             nodes.forEach((node) => {
+              if (!node.getClientRects().length) return;
               const top = node.getBoundingClientRect().top;
               const start = lineOf(node);
               if (!Number.isNaN(start) && top <= 32 && top >= best) {
@@ -212,6 +323,20 @@ struct PageWebView: NSViewRepresentable {
             window.webkit.messageHandlers.markme.postMessage(line);
           };
           document.addEventListener('scroll', report, true);
+          document.addEventListener('selectionchange', () => {
+            const sel = window.getSelection();
+            if (!sel || !sel.rangeCount) {
+              window.webkit.messageHandlers.markme.postMessage({ kind: 'selection', line: 0, collapsed: true });
+              return;
+            }
+            const range = sel.getRangeAt(0);
+            const line = lineAt(range.startContainer, range.startOffset);
+            window.webkit.messageHandlers.markme.postMessage({
+              kind: 'selection',
+              line: line || 0,
+              collapsed: line ? sel.isCollapsed : true
+            });
+          });
           window.markmeScrollToLine = (line) => {
             const nodes = document.querySelectorAll('[data-sourcepos]');
             let target = null;

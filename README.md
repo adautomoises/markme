@@ -27,6 +27,8 @@ Zoom is in the same menu: Zoom In (⌘+), Zoom Out (⌘−), and Actual Size (�
 
 When the file changes while the window is open, the new lines are marked and a bar steps through them. Seen clears the marks. The file is not edited.
 
+Copy Location (⇧⌘C) puts a reference such as `docs/plan.md:42` on the clipboard. A selection uses that line. A caret uses the heading above it. The reference is there to paste into a coding agent. markme does not start one.
+
 The page colors code, including Dart, Flutter, and Kotlin. A `mermaid` fence becomes a diagram. A Gherkin fence colors the tags and the step words.
 
 Extensions: `md`, `markdown`, `mdown`, `mkd`, `mdwn`. UTF-8 only. One file, one window.

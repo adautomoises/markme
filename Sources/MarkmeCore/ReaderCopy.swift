@@ -19,6 +19,7 @@ public enum CopyKey: String, Sendable {
     case changesSeen
     case changesPrevious
     case changesNext
+    case copyLocation
 }
 
 public enum ReaderCopy {
@@ -56,6 +57,7 @@ public enum ReaderCopy {
         case .changesSeen: return portuguese ? "Visto" : "Seen"
         case .changesPrevious: return portuguese ? "Mudança anterior" : "Previous change"
         case .changesNext: return portuguese ? "Próxima mudança" : "Next change"
+        case .copyLocation: return portuguese ? "Copiar localização" : "Copy Location"
         }
     }
 
