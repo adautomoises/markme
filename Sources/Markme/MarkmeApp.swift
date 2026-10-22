@@ -21,6 +21,12 @@ struct MarkmeApp: App {
         }
         .defaultSize(width: 960, height: 680)
         .commands {
+            CommandGroup(replacing: .saveItem) {
+                Button(ReaderCopy.string(.save, languageCode: languageCode)) {
+                    NotificationCenter.default.post(name: .markmeSave, object: nil)
+                }
+                .keyboardShortcut("s", modifiers: .command)
+            }
             CommandGroup(after: .pasteboard) {
                 Button(ReaderCopy.string(.copyLocation, languageCode: languageCode)) {
                     NotificationCenter.default.post(name: .markmeCopyLocation, object: nil)

@@ -1,8 +1,8 @@
 # Agents
 
-markme is a read-only Markdown viewer for macOS. A double-click opens one window on the formatted page. The source can be selected and copied. The file is not edited.
+markme is a Markdown window for macOS. A double-click opens one window on the formatted page. Text and side by side edit the Markdown of that file. The page updates as you type, and the file is saved after a short pause. There is no rich-text editor.
 
-Before adding a capability, read [docs/BACKLOG.md](docs/BACKLOG.md). The backlog is the priority order borrowed from Nimbalyst without taking its workspace: no agent runner, no git UI, no folder tree, no write path.
+Before adding a capability, read [docs/BACKLOG.md](docs/BACKLOG.md). The backlog is the priority order borrowed from Nimbalyst without taking its workspace: no agent runner, no git UI, no folder tree. The only write is the open Markdown file.
 
 ## While you change the code
 

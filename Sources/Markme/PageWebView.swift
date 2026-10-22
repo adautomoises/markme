@@ -4,6 +4,7 @@ import MarkmeCore
 
 struct PageWebView: NSViewRepresentable {
     let html: String
+    let articleHTML: String
     let baseURL: URL?
     let findQuery: String
     let scrollToLine: Int?
@@ -57,10 +58,19 @@ struct PageWebView: NSViewRepresentable {
         }
         let htmlChanged = context.coordinator.lastHTML != html || context.coordinator.lastBase != baseURL
         if htmlChanged {
+            let canReplace = context.coordinator.lastHTML != nil
+                && context.coordinator.lastBase == baseURL
+                && !context.coordinator.awaitingLoad
+                && !presenting
+                && !articleHTML.isEmpty
             context.coordinator.lastHTML = html
             context.coordinator.lastBase = baseURL
-            context.coordinator.awaitingLoad = true
-            view.loadHTMLString(html, baseURL: baseURL)
+            if canReplace {
+                context.coordinator.replaceArticle(articleHTML, in: view)
+            } else {
+                context.coordinator.awaitingLoad = true
+                view.loadHTMLString(html, baseURL: baseURL)
+            }
         } else if !context.coordinator.awaitingLoad,
                   context.coordinator.pendingChangeToken > 0,
                   let changeCursor = context.coordinator.pendingChangeCursor {
@@ -186,6 +196,15 @@ struct PageWebView: NSViewRepresentable {
                 lastReportedLine = line
                 onVisibleLine(line)
             }
+        }
+
+        func replaceArticle(_ html: String, in webView: WKWebView) {
+            guard let data = try? JSONSerialization.data(withJSONObject: [html]),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            webView.evaluateJavaScript(
+                "window.markmeReplace && window.markmeReplace(\(json)[0])",
+                completionHandler: nil
+            )
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

@@ -30,6 +30,11 @@ public enum CopyKey: String, Sendable {
     case featureTasks
     case featureSpec
     case featurePlan
+    case draftConflict
+    case draftKeepMine
+    case draftUseDisk
+    case draftSaveFailed
+    case save
 }
 
 public enum ReaderCopy {
@@ -78,6 +83,15 @@ public enum ReaderCopy {
         case .featureTasks: return portuguese ? "Tarefas" : "Tasks"
         case .featureSpec: return "Spec"
         case .featurePlan: return portuguese ? "Plano" : "Plan"
+        case .draftConflict:
+            return portuguese
+                ? "O arquivo mudou enquanto você escrevia."
+                : "The file changed while you were writing."
+        case .draftKeepMine: return portuguese ? "Ficar com o meu" : "Keep mine"
+        case .draftUseDisk: return portuguese ? "Trazer do disco" : "Use the disk"
+        case .draftSaveFailed:
+            return portuguese ? "Não foi possível gravar." : "Could not save."
+        case .save: return portuguese ? "Salvar" : "Save"
         }
     }
 

@@ -6,6 +6,7 @@ struct ReaderView: View {
     let fileURL: URL?
     @State private var model: ReaderModel
     @State private var pageHTML = ""
+    @State private var pageBody = ""
     @State private var split = SplitFraction()
     @State private var dragOrigin: CGFloat = 0.5
     @State private var findQuery = ""
@@ -20,6 +21,12 @@ struct ReaderView: View {
     @State private var zoom = ReaderZoom()
     @State private var slideIndex = 0
     @State private var companionToken = 0
+    @State private var liveToken = 0
+    @State private var liveTicket = 0
+    @State private var saveTicket = 0
+    @State private var sourceFocusToken = 0
+    @State private var draft: DraftSync
+    @State private var saveFailed = false
     @State private var presentationFullscreen = false
     @State private var hideToolbar = false
     @State private var toolbarNeedsRestore = false
@@ -39,13 +46,23 @@ struct ReaderView: View {
         let name = fileURL?.lastPathComponent ?? "markdown"
         let dismissed = UserDefaults.standard.bool(forKey: Self.bannerKey)
         let data: Data? = document.missing ? nil : document.data
-        _model = State(initialValue: ReaderModel(fileName: name, data: data, bannerDismissed: dismissed))
+        let model = ReaderModel(fileName: name, data: data, bannerDismissed: dismissed)
+        _model = State(initialValue: model)
+        _draft = State(initialValue: DraftSync(saved: model.failure == nil ? model.text : ""))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             if model.showsBanner, model.mode != .presentation {
                 banner
+                Divider()
+            }
+            if draft.saveIsBlocked, model.mode != .presentation {
+                draftConflictBar
+                Divider()
+            }
+            if saveFailed, !draft.saveIsBlocked, model.mode != .presentation {
+                saveFailedBar
                 Divider()
             }
             if showsChangeBar {
@@ -92,6 +109,9 @@ struct ReaderView: View {
             if mode == .presentation, previous != .presentation {
                 slideIndex = 0
             }
+            if mode == .source || mode == .split {
+                sourceFocusToken += 1
+            }
             syncPresentationChrome()
         }
         .onReceive(NotificationCenter.default.publisher(for: .markmeSlide)) { note in
@@ -130,6 +150,11 @@ struct ReaderView: View {
         .onReceive(NotificationCenter.default.publisher(for: .markmeCopyLocation)) { _ in
             copyLocation()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .markmeSave)) { _ in
+            guard ownsMenuAction else { return }
+            saveTicket += 1
+            commitDraft()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .markmeMode)) { note in
             guard ownsMenuAction, let raw = note.object as? String, let mode = ReaderMode(rawValue: raw) else { return }
             model.mode = mode
@@ -140,8 +165,11 @@ struct ReaderView: View {
         .onChange(of: model.text) { _, _ in
             refreshCompanion()
         }
-        .onDisappear { watcher.stop() }
-        .task(id: "\(model.changeRevision).\(companionToken)") { await renderPage() }
+        .onDisappear {
+            commitDraft()
+            watcher.stop()
+        }
+        .task(id: "\(model.changeRevision).\(companionToken).\(liveToken)") { await renderPage() }
     }
 
     @ViewBuilder
@@ -174,6 +202,7 @@ struct ReaderView: View {
     private var page: some View {
         PageWebView(
             html: pageHTML,
+            articleHTML: pageBody,
             baseURL: fileURL?.deletingLastPathComponent(),
             findQuery: findPresented ? findQuery : "",
             scrollToLine: pageScrollLine,
@@ -207,6 +236,8 @@ struct ReaderView: View {
     private var source: some View {
         SourceTextView(
             text: model.text,
+            editable: fileURL != nil && model.failure == nil,
+            focusToken: sourceFocusToken,
             findQuery: findPresented ? findQuery : "",
             scrollToLine: sourceScrollLine,
             zoom: zoom.factor,
@@ -217,7 +248,8 @@ struct ReaderView: View {
             onSelection: { line, collapsed in
                 sourceCaretLine = line
                 sourceSelectionCollapsed = collapsed
-            }
+            },
+            onEdit: noteTyped
         )
     }
 
@@ -247,6 +279,36 @@ struct ReaderView: View {
                 page
             }
         }
+    }
+
+    private var draftConflictBar: some View {
+        HStack(spacing: 12) {
+            Text(copy(.draftConflict))
+                .font(.callout)
+            Spacer()
+            Button(copy(.draftUseDisk)) { useDisk() }
+            Button(copy(.draftKeepMine)) { keepMine() }
+                .buttonStyle(.borderedProminent)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .windowBackgroundColor))
+    }
+
+    private var saveFailedBar: some View {
+        HStack(spacing: 12) {
+            Text(copy(.draftSaveFailed))
+                .font(.callout)
+            Spacer()
+            Button(copy(.save)) {
+                saveTicket += 1
+                commitDraft()
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(Color(nsColor: .windowBackgroundColor))
     }
 
     private var banner: some View {
@@ -468,13 +530,14 @@ struct ReaderView: View {
                 body = markedPlan
             }
             let html = PageShell.html(body: body, highlighter: highlighter, mermaid: mermaid)
-            return (html: html, spans: spans)
+            return (html: html, body: body, spans: spans)
         }.value
         guard generation == renderGeneration, model.changeRevision == revision else { return }
         if baseline != nil {
             model.adoptChanges(rendered.spans, revision: revision)
             changeScrollToken = 0
         }
+        pageBody = rendered.body
         pageHTML = rendered.html
     }
 
@@ -600,7 +663,7 @@ struct ReaderView: View {
         guard let fileURL else { return }
         _ = fileURL.startAccessingSecurityScopedResource()
         watcher.onChange = { data, detail in
-            model.reload(data: data, failureDetail: detail)
+            acceptDisk(data, detail: detail)
         }
         watcher.onCompanion = {
             companionToken += 1
@@ -622,6 +685,95 @@ struct ReaderView: View {
     }
 
     static let bannerKey = "markme.bannerDismissed"
+
+    private func noteTyped(_ text: String) {
+        model.text = text
+        if !model.changes.isEmpty || model.changeBaseline != nil {
+            model.dismissChanges()
+        }
+        scheduleLive()
+        scheduleSave()
+    }
+
+    private func scheduleLive() {
+        liveTicket += 1
+        let ticket = liveTicket
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 80_000_000)
+            guard ticket == liveTicket else { return }
+            liveToken += 1
+        }
+    }
+
+    private func scheduleSave() {
+        guard fileURL != nil else { return }
+        saveTicket += 1
+        let ticket = saveTicket
+        let delay = UInt64(DraftSync.saveDelay * 1_000_000_000)
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: delay)
+            guard ticket == saveTicket else { return }
+            commitDraft()
+        }
+    }
+
+    private func commitDraft() {
+        guard let fileURL, !draft.saveIsBlocked else { return }
+        let text = model.text
+        guard text != draft.saved else {
+            saveFailed = false
+            return
+        }
+        draft.willWrite(text)
+        do {
+            try Data(text.utf8).write(to: fileURL, options: .atomic)
+            draft.didWrite(text)
+            saveFailed = false
+            settleDocument()
+        } catch {
+            draft.failWrite(text)
+            saveFailed = true
+        }
+    }
+
+    private func settleDocument() {
+        settleMarkdownWindow(hostWindow)
+    }
+
+    private func keepMine() {
+        draft.keepMine()
+        saveTicket += 1
+        commitDraft()
+    }
+
+    private func useDisk() {
+        guard let text = draft.takeDisk() else { return }
+        saveTicket += 1
+        model.text = text
+        if !model.changes.isEmpty || model.changeBaseline != nil {
+            model.dismissChanges()
+        }
+        saveFailed = false
+        scheduleLive()
+    }
+
+    private func acceptDisk(_ data: Data?, detail: String) {
+        guard let data, let disk = String(data: data, encoding: .utf8) else {
+            if draft.pendingWrite != nil || draft.echoedWrite != nil || draft.saveIsBlocked || model.text != draft.saved {
+                return
+            }
+            model.reload(data: data, failureDetail: detail)
+            return
+        }
+        switch draft.receive(disk: disk, buffer: model.text) {
+        case .same, .continued:
+            break
+        case .reload:
+            model.reload(data: data)
+        case .conflict:
+            saveTicket += 1
+        }
+    }
 }
 
 private enum HighlighterLibrary {
@@ -664,6 +816,7 @@ private enum MermaidLibrary {
 extension Notification.Name {
     static let markmeFind = Notification.Name("markme.find")
     static let markmeCopyLocation = Notification.Name("markme.copyLocation")
+    static let markmeSave = Notification.Name("markme.save")
     static let markmeMode = Notification.Name("markme.mode")
     static let markmeZoom = Notification.Name("markme.zoom")
     static let markmeSlide = Notification.Name("markme.slide")
