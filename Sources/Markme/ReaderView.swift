@@ -435,29 +435,39 @@ struct ReaderView: View {
             || cited.map { PageShell.containsMermaidFence($0.markdown) } == true
         let mermaid = needsDiagram ? MermaidLibrary.script : ""
         let planLabel = openedFile?.lastPathComponent ?? ""
+        let rememberedSpans = model.changes
+        let rememberedCursor = model.changeCursor
         let rendered = await Task.detached(priority: .userInitiated) {
             let planBody = MarkdownRenderer.render(text, baseDirectory: baseDirectory, languageCode: language).htmlBody
+            let spans: [ChangeSpan]
+            let selected: Int?
+            if let baseline {
+                spans = ChangeReview.spans(from: baseline, to: text)
+                selected = spans.isEmpty ? nil : 0
+            } else {
+                spans = rememberedSpans
+                selected = rememberedCursor.flatMap { spans.indices.contains($0) ? $0 : nil }
+            }
+            let markedPlan = ChangeReview.annotate(
+                html: planBody,
+                spans: spans,
+                selected: selected,
+                removedLabel: { ReaderCopy.linesRemoved($0, languageCode: language) }
+            )
             let body: String
             if let cited, let baseDirectory {
                 body = FeaturePage.compose(
                     plan: text,
-                    planHTML: planBody,
+                    planHTML: markedPlan,
                     spec: cited,
                     planDirectory: baseDirectory,
                     planLabel: planLabel,
                     languageCode: language
                 )
             } else {
-                body = planBody
+                body = markedPlan
             }
-            let spans = baseline.map { ChangeReview.spans(from: $0, to: text) } ?? []
-            let marked = ChangeReview.annotate(
-                html: body,
-                spans: spans,
-                selected: spans.isEmpty ? nil : 0,
-                removedLabel: { ReaderCopy.linesRemoved($0, languageCode: language) }
-            )
-            let html = PageShell.html(body: marked, highlighter: highlighter, mermaid: mermaid)
+            let html = PageShell.html(body: body, highlighter: highlighter, mermaid: mermaid)
             return (html: html, spans: spans)
         }.value
         guard generation == renderGeneration, model.changeRevision == revision else { return }

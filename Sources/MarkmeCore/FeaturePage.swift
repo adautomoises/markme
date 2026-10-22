@@ -135,14 +135,15 @@ public enum FeaturePage {
         excluding planFile: URL?,
         fileManager: FileManager
     ) -> URL? {
-        let decoded = path.removingPercentEncoding ?? path
+        let file = citedFilePath(path)
+        guard !file.isEmpty else { return nil }
         let candidates: [URL]
-        if decoded.hasPrefix("/") {
-            candidates = [URL(fileURLWithPath: decoded)]
+        if file.hasPrefix("/") {
+            candidates = [URL(fileURLWithPath: file)]
         } else {
-            var found = [planDirectory.appendingPathComponent(decoded)]
+            var found = [planDirectory.appendingPathComponent(file)]
             if let root = gitRoot(of: planDirectory, fileManager: fileManager) {
-                found.append(root.appendingPathComponent(decoded))
+                found.append(root.appendingPathComponent(file))
             }
             candidates = found
         }
@@ -377,11 +378,19 @@ public enum FeaturePage {
         return result
     }
 
+    /// The file path of a citation. A `#fragment` or `?query` is not part of the name.
+    private static func citedFilePath(_ path: String) -> String {
+        let decoded = path.removingPercentEncoding ?? path
+        let bare = decoded.split(separator: "#", maxSplits: 1).first.map(String.init) ?? decoded
+        return bare.split(separator: "?", maxSplits: 1).first.map(String.init) ?? bare
+    }
+
     private static func relativeResource(_ value: String, from specDirectory: URL, to planDirectory: URL) -> String {
         if value.isEmpty || value.hasPrefix("#") { return value }
-        let decoded = value.removingPercentEncoding ?? value
-        if let url = URL(string: decoded), url.scheme != nil { return value }
-        let hash = decoded.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
+        let decodedEntities = htmlDecoded(value)
+        let text = decodedEntities.removingPercentEncoding ?? decodedEntities
+        if text.hasPrefix("//") || hasScheme(text) { return value }
+        let hash = text.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)
         let beforeFragment = String(hash[0])
         let fragment = hash.count > 1 ? String(hash[1]) : nil
         let queryParts = beforeFragment.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
@@ -414,7 +423,7 @@ public enum FeaturePage {
     private static func percentEncodePath(_ path: String) -> String {
         var output = ""
         for character in path {
-            if character == "/" || character == "?" || character == "#" {
+            if character == "/" || character == "?" || character == "#" || character == "=" {
                 output.append(character)
                 continue
             }
@@ -430,6 +439,58 @@ public enum FeaturePage {
             }
         }
         return output
+    }
+
+    private static func hasScheme(_ value: String) -> Bool {
+        guard let colon = value.firstIndex(of: ":"), colon > value.startIndex else { return false }
+        let scheme = value[..<colon]
+        guard let first = scheme.unicodeScalars.first, CharacterSet.letters.contains(first) else { return false }
+        return scheme.unicodeScalars.allSatisfy { scalar in
+            CharacterSet.letters.contains(scalar)
+                || CharacterSet.decimalDigits.contains(scalar)
+                || scalar == "+" || scalar == "-" || scalar == "."
+        }
+    }
+
+    /// Attribute text still has the entities the page sanitizer writes back (`&amp;`).
+    private static func htmlDecoded(_ value: String) -> String {
+        var result = ""
+        var index = value.startIndex
+        while index < value.endIndex {
+            if value[index] == "&",
+               let semi = value[index...].firstIndex(of: ";"),
+               value.distance(from: index, to: semi) <= 16,
+               let scalar = htmlScalar(value[value.index(after: index)..<semi]) {
+                result.unicodeScalars.append(scalar)
+                index = value.index(after: semi)
+                continue
+            }
+            result.append(value[index])
+            index = value.index(after: index)
+        }
+        return result
+    }
+
+    private static func htmlScalar(_ body: Substring) -> Unicode.Scalar? {
+        let named = ["amp": "&", "lt": "<", "gt": ">", "quot": "\"", "apos": "'"]
+        if let value = named[String(body)] {
+            return value.unicodeScalars.first
+        }
+        let digits: Substring
+        let radix: Int
+        if body.hasPrefix("#x") || body.hasPrefix("#X") {
+            digits = body.dropFirst(2)
+            radix = 16
+        } else if body.hasPrefix("#") {
+            digits = body.dropFirst()
+            radix = 10
+        } else {
+            return nil
+        }
+        guard !digits.isEmpty, let number = UInt32(digits, radix: radix), let scalar = Unicode.Scalar(number) else {
+            return nil
+        }
+        return scalar
     }
 
     private static func preamble(of markdown: String) -> [String] {

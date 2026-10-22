@@ -96,6 +96,25 @@ final class FeaturePageTests: XCTestCase {
         XCTAssertEqual(cited?.url.standardizedFileURL.path, design.standardizedFileURL.path)
     }
 
+    func testAFragmentOrQueryOnTheCitedSpecStillOpensTheFile() throws {
+        let root = try makeDirectory()
+        defer { remove(root) }
+        let specURL = root.appendingPathComponent("design.md")
+        try write("hello", to: specURL)
+        let fragment = try XCTUnwrap(FeaturePage.load(
+            plan: "**Spec:** `design.md#intent`\n\n## Work\n",
+            planDirectory: root
+        ))
+        XCTAssertEqual(fragment.label, "design.md#intent")
+        XCTAssertEqual(fragment.url.standardizedFileURL.path, specURL.standardizedFileURL.path)
+        let query = try XCTUnwrap(FeaturePage.load(
+            plan: "**Spec:** `design.md?plain=1`\n\n## Work\n",
+            planDirectory: root
+        ))
+        XCTAssertEqual(query.label, "design.md?plain=1")
+        XCTAssertEqual(query.url.standardizedFileURL.path, specURL.standardizedFileURL.path)
+    }
+
     func testAMissingSpecLeavesThePlanAlone() throws {
         let root = try makeDirectory()
         defer { remove(root) }
@@ -146,6 +165,65 @@ final class FeaturePageTests: XCTestCase {
         XCTAssertTrue(page.contains("<a href=\"#"), page)
         let second = try XCTUnwrap(headingID(matching: "Task 2: Strip active HTML", in: planHTML))
         XCTAssertTrue(page.contains("<a href=\"#\(second)\">Strip active HTML</a>"), page)
+    }
+
+    func testSpecLinksKeepApostrophesAmpersandsAndQueries() throws {
+        let root = try makeDirectory()
+        defer { remove(root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(".git"), withIntermediateDirectories: true)
+        let specs = root.appendingPathComponent("docs/superpowers/specs")
+        let plans = root.appendingPathComponent("docs/superpowers/plans")
+        let body = """
+        # Viewer
+
+        ![quote](don't.png)
+
+        ![pair](a&b.png)
+
+        [query](notes/other.md?a=1&b=2)
+
+        [web](https://example.com/a&b.png)
+        """
+        try write(body, to: specs.appendingPathComponent("design.md"))
+        let planText = "**Spec:** `docs/superpowers/specs/design.md`\n\n## Work\n"
+        let cited = try XCTUnwrap(FeaturePage.load(plan: planText, planDirectory: plans))
+        let page = FeaturePage.compose(
+            plan: planText,
+            planHTML: "<p>plan</p>",
+            spec: cited,
+            planDirectory: plans,
+            planLabel: "plan.md",
+            languageCode: "en"
+        )
+        XCTAssertTrue(page.contains("src=\"../specs/don%27t.png\""), page)
+        XCTAssertTrue(page.contains("src=\"../specs/a%26b.png\""), page)
+        XCTAssertTrue(page.contains("href=\"../specs/notes/other.md?a=1%26b=2\""), page)
+        XCTAssertTrue(page.contains("https://example.com/a&amp;b.png"), page)
+        XCTAssertFalse(page.contains("amp%3B"), page)
+        XCTAssertFalse(page.contains("#x27"), page)
+    }
+
+    func testALeadingPlanRemovalStaysUnderThePlanHeading() throws {
+        let fixture = try fixture()
+        defer { remove(fixture.root) }
+        let planHTML = MarkdownRenderer.render(plan, baseDirectory: fixture.plans).htmlBody
+        let marked = ChangeReview.annotate(
+            html: planHTML,
+            spans: [ChangeSpan(kind: .removed(afterLine: 0, count: 1))],
+            selected: 0
+        ) { _ in "1 removed" }
+        let page = FeaturePage.compose(
+            plan: plan,
+            planHTML: marked,
+            spec: fixture.spec,
+            planDirectory: fixture.plans,
+            planLabel: "plan.md",
+            languageCode: "en"
+        )
+        XCTAssertFalse(map(of: page).contains("change-removed"), page)
+        let planHeading = try XCTUnwrap(page.range(of: "id=\"markme-feature-plan\""))
+        let pill = try XCTUnwrap(page.range(of: "change-removed"))
+        XCTAssertLessThan(planHeading.lowerBound, pill.lowerBound)
     }
 
     func testSpecMarkupDoesNotReusePlanSourcePositionsOrHeadingIds() throws {
