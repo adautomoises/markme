@@ -25,6 +25,11 @@ public enum CopyKey: String, Sendable {
     case alertImportant
     case alertWarning
     case alertCaution
+    case featureGoals
+    case featureNonGoals
+    case featureTasks
+    case featureSpec
+    case featurePlan
 }
 
 public enum ReaderCopy {
@@ -68,6 +73,11 @@ public enum ReaderCopy {
         case .alertImportant: return portuguese ? "Importante" : "Important"
         case .alertWarning: return portuguese ? "Aviso" : "Warning"
         case .alertCaution: return portuguese ? "Cuidado" : "Caution"
+        case .featureGoals: return portuguese ? "Objetivos" : "Goals"
+        case .featureNonGoals: return portuguese ? "Fora" : "Out of scope"
+        case .featureTasks: return portuguese ? "Tarefas" : "Tasks"
+        case .featureSpec: return "Spec"
+        case .featurePlan: return portuguese ? "Plano" : "Plan"
         }
     }
 
