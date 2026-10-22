@@ -20,7 +20,7 @@ open -a /Applications/Markme.app Fixtures/weekend.md
 - Match the style of the file you edit.
 - Add or update a test when the change is in `MarkmeCore`.
 - The interface is English, and Portuguese when the Mac language is Portuguese. Fixed sentences live in `Sources/MarkmeCore/ReaderCopy.swift`.
-- Do not add project files, account sync, or a write path. markme only reads.
+- Do not add project files or account sync. The only write is the Markdown file open in the window.
 - New product work follows [docs/BACKLOG.md](docs/BACKLOG.md). [AGENTS.md](AGENTS.md) is the short version for coding agents.
 
 ## Reports

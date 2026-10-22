@@ -4,6 +4,8 @@ import MarkmeCore
 
 struct SourceTextView: NSViewRepresentable {
     let text: String
+    let editable: Bool
+    let focusToken: Int
     let findQuery: String
     let scrollToLine: Int?
     let zoom: Double
@@ -12,9 +14,10 @@ struct SourceTextView: NSViewRepresentable {
     let changeScrollToken: Int
     var onVisibleLine: (Int) -> Void
     var onSelection: (Int, Bool) -> Void
+    var onEdit: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onVisibleLine: onVisibleLine, onSelection: onSelection)
+        Coordinator(onVisibleLine: onVisibleLine, onSelection: onSelection, onEdit: onEdit)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -24,10 +27,12 @@ struct SourceTextView: NSViewRepresentable {
         scroll.drawsBackground = true
         scroll.borderType = .noBorder
 
-        let textView = NSTextView()
-        textView.isEditable = SourceTextConfiguration.isEditable
+        let textView = MarkdownTextView()
+        textView.isEditable = editable
         textView.isSelectable = SourceTextConfiguration.isSelectable
         textView.isRichText = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.allowsUndo = true
         textView.font = NSFont.monospacedSystemFont(
             ofSize: SourceTextConfiguration.fontSize(zoom: zoom),
             weight: .regular
@@ -68,7 +73,15 @@ struct SourceTextView: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.onVisibleLine = onVisibleLine
         context.coordinator.onSelection = onSelection
+        context.coordinator.onEdit = onEdit
         guard let textView = scroll.documentView as? NSTextView else { return }
+        textView.isEditable = editable
+        if context.coordinator.lastFocus != focusToken {
+            context.coordinator.lastFocus = focusToken
+            if editable, focusToken > 0 {
+                textView.window?.makeFirstResponder(textView)
+            }
+        }
         if context.coordinator.lastZoom != zoom {
             context.coordinator.lastZoom = zoom
             textView.font = NSFont.monospacedSystemFont(
@@ -78,7 +91,9 @@ struct SourceTextView: NSViewRepresentable {
             context.coordinator.ruler?.needsDisplay = true
         }
         if textView.string != text {
+            context.coordinator.applyingExternal = true
             textView.string = text
+            context.coordinator.applyingExternal = false
             context.coordinator.ruler?.needsDisplay = true
             context.coordinator.reportSelection()
         }
@@ -103,19 +118,38 @@ struct SourceTextView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var onVisibleLine: (Int) -> Void
         var onSelection: (Int, Bool) -> Void
+        var onEdit: (String) -> Void
         weak var textView: NSTextView?
         weak var ruler: LineNumberRuler?
+        var applyingExternal = false
         var lastFind = ""
         var lastScroll: Int?
         var lastZoom = 1.0
+        var lastFocus = 0
         var lastChanges: [ChangeSpan] = []
         var lastChangeCursor: Int?
         var lastChangeToken = 0
         var lastHighlighted = ""
 
-        init(onVisibleLine: @escaping (Int) -> Void, onSelection: @escaping (Int, Bool) -> Void) {
+        init(
+            onVisibleLine: @escaping (Int) -> Void,
+            onSelection: @escaping (Int, Bool) -> Void,
+            onEdit: @escaping (String) -> Void
+        ) {
             self.onVisibleLine = onVisibleLine
             self.onSelection = onSelection
+            self.onEdit = onEdit
+        }
+
+        @MainActor
+        func textDidChange(_ notification: Notification) {
+            guard !applyingExternal, let textView else { return }
+            ruler?.needsDisplay = true
+            onEdit(textView.string)
+            settleMarkdownWindow(textView.window)
+            DispatchQueue.main.async { [weak textView] in
+                settleMarkdownWindow(textView?.window)
+            }
         }
 
         @MainActor
@@ -207,6 +241,42 @@ struct SourceTextView: NSViewRepresentable {
                 : NSColor(srgbRed: 0.18, green: 0.65, blue: 0.32, alpha: 0.32)
         }
     }
+}
+
+/// Plain Markdown editor. Undo stays on this view so the window document
+/// does not treat keystrokes as its own unsaved changes.
+final class MarkdownTextView: NSTextView {
+    private let editingUndo = UndoManager()
+
+    override var undoManager: UndoManager? { editingUndo }
+}
+
+/// DocumentGroup watches the text view and paints "Edited" on the title.
+/// ReaderDocument refuses that save; this window writes the file itself.
+@MainActor
+func settleMarkdownWindow(_ window: NSWindow?) {
+    guard let window else { return }
+    if let document = window.windowController?.document as? NSDocument, document.isDocumentEdited {
+        document.updateChangeCount(.changeCleared)
+    }
+    var root: NSView? = window.contentView
+    while let parent = root?.superview { root = parent }
+    guard let root else { return }
+    func walk(_ view: NSView) {
+        let name = String(describing: type(of: view))
+        if name.contains("NSToolbarTitleStackView") {
+            for child in view.subviews where child is NSTextField {
+                child.isHidden = true
+            }
+        }
+        if name.contains("NSDocumentAutosaveButton") {
+            view.isHidden = true
+        }
+        for child in view.subviews {
+            walk(child)
+        }
+    }
+    walk(root)
 }
 
 final class LineNumberRuler: NSRulerView {

@@ -105,6 +105,7 @@ public enum PageShell {
         <article>\(body)</article>
         <script>\(highlighter)</script>
         <script>
+        window.markmePaint = function () {
         if (window.hljs) {
           hljs.registerLanguage("gherkin", function (hljs) {
             return {
@@ -129,6 +130,18 @@ public enum PageShell {
           });
           hljs.highlightAll();
         }
+        };
+        window.markmeReplace = function (html) {
+          var article = document.querySelector("article");
+          if (!article) return;
+          var scroller = document.scrollingElement || document.documentElement;
+          var top = scroller.scrollTop;
+          article.innerHTML = html;
+          if (window.markmeDiagrams) window.markmeDiagrams();
+          window.markmePaint();
+          scroller.scrollTop = top;
+        };
+        window.markmePaint();
         </script>
         <script>
         window.markmePresent = function (on) {
@@ -254,6 +267,17 @@ public enum PageShell {
         <script>\(source)</script>
         <script>
         if (window.mermaid) {
+          if (!window.__markmeMermaid) {
+            window.__markmeMermaid = true;
+            var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+            mermaid.initialize({
+              startOnLoad: false,
+              securityLevel: "strict",
+              theme: dark ? "dark" : "default",
+              fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif"
+            });
+          }
+          window.markmeDiagrams = function () {
           document.querySelectorAll("pre code").forEach(function (node) {
             if (!/(^|\\s)language-mermaid(\\s|$)/i.test(node.className || "")) return;
             var pre = node.parentElement;
@@ -283,14 +307,9 @@ public enum PageShell {
             div.textContent = node.textContent || "";
             pre.replaceWith(div);
           });
-          var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-          mermaid.initialize({
-            startOnLoad: false,
-            securityLevel: "strict",
-            theme: dark ? "dark" : "default",
-            fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif"
-          });
           mermaid.run({ querySelector: ".mermaid", suppressErrors: true }).catch(function () {});
+          };
+          window.markmeDiagrams();
         }
         </script>
         """

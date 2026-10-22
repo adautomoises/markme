@@ -1,6 +1,6 @@
 # Backlog
 
-markme is the window that opens when a Markdown file is double-clicked. It stays a light, read-only viewer. This list is what is worth taking from [Nimbalyst](https://github.com/nimbalyst/nimbalyst) so that window is a good place to read the notes, plans, and reviews written with Claude Code, GitHub Copilot, Grok, and other coding agents.
+markme is the window that opens when a Markdown file is double-clicked. It stays a light Markdown window: the formatted page first, and the source when you want to change the file. This list is what is worth taking from [Nimbalyst](https://github.com/nimbalyst/nimbalyst) so that window is a good place to read and edit the notes, plans, and reviews written with Claude Code, GitHub Copilot, Grok, and other coding agents.
 
 Nimbalyst is a visual workspace: many agent sessions, git worktrees, a task board, a terminal, WYSIWYG editors, and a phone app. Its own markdown policy is the part that matches markme: the file on disk is the truth, the syntax is ordinary Markdown, and anything that needs a private format stays out. markme borrows that idea and leaves the workspace behind.
 
@@ -11,14 +11,15 @@ The README describes the app as it is today. A shipped item says so. The rest ar
 These overlap Nimbalyst and stay as they are.
 
 - The formatted page is the default. Text and side by side are one menu away.
-- The file reloads when it changes on disk. The reading position is kept. New lines are marked, a short marker shows where text was removed, and a bar steps through those marks. Seen clears them. The file is not rewritten.
+- Text and side by side edit the Markdown. The page follows. The file is written after a short pause, and ⌘S writes it at once. That write is not marked as an outside change.
+- The file reloads when it changes on disk and the sentence on screen already matches the last save. The reading position is kept. New lines are marked, a short marker shows where text was removed, and a bar steps through those marks. Seen clears them. An outside write during an unfinished sentence waits for Keep mine or Use the disk.
 - Copy Location puts `path:line` on the clipboard. A selection uses that line. A caret uses the heading above it. Inside a git checkout the path is relative to the checkout root. Nothing is launched.
 - A GitHub alert shows its label. YAML at the top of the file shows title and status on the page. A wikilink opens a Markdown file in the same folder or one folder down.
 - GitHub-flavored Markdown: tables, task lists, strikethrough, footnotes, autolinks.
 - A `mermaid` fence becomes a diagram. Other fences are colored, including Gherkin, Dart, Flutter, and Kotlin.
 - A relative link to another Markdown file opens in markme. A web link opens in the browser.
 - Headings have stable ids. The page can scroll to a line in the source.
-- A plan that cites a spec with `**Spec:**` in its opening is one reading: a map of the intent, goals, out of scope, and tasks, then the spec, then the plan. A task link scrolls on that page. The text view stays the opened file. Nothing is written, and a file without that line is unchanged.
+- A plan that cites a spec with `**Spec:**` in its opening is one reading: a map of the intent, goals, out of scope, and tasks, then the spec, then the plan. A task link scrolls on that page. The text view stays the opened file. No extra file is written, and a file without that line is unchanged.
 - `---` starts a slide in presentation.
 - The page follows the system appearance. Zoom and find are per window.
 
@@ -60,8 +61,9 @@ Agents emit `$inline$` and `$$blocks$$`. The original viewer left math out, and 
 Paste this, or point the agent at this heading, when it writes Markdown a person will read in markme.
 
 ```markdown
-The human reads Markdown in markme, a read-only Mac viewer. Write ordinary
-GitHub-flavored Markdown to the file. The viewer reloads when the file changes.
+The human reads and edits Markdown in markme, a Mac window. Write ordinary
+GitHub-flavored Markdown to the file. The window reloads when the file changes
+and the person is not in the middle of a sentence.
 
 - Use headings, lists, tables, task lists, footnotes, and fenced code.
 - Put diagrams in a mermaid fence. Put slides in one file, split with ---.
@@ -73,4 +75,4 @@ GitHub-flavored Markdown to the file. The viewer reloads when the file changes.
 
 ## Working on this repository
 
-Agents that change markme itself should read [AGENTS.md](../AGENTS.md). Product behavior stays inside the priorities above. A new capability that writes the file, runs an agent, or adds a project panel is outside the backlog.
+Agents that change markme itself should read [AGENTS.md](../AGENTS.md). Product behavior stays inside the priorities above. A new capability that runs an agent or adds a project panel is outside the backlog. The open Markdown file is the only write.

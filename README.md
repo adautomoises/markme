@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/github/license/vlrod/markme)](LICENSE)
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black)](https://github.com/vlrod/markme)
 
-markme opens a Markdown file so you can read it. Double-click the file in the Finder. The page is already formatted. You can select and copy the text. The file is not edited.
+markme opens a Markdown file. Double-click the file in the Finder. The page is already formatted. Text and side by side are the Markdown of that file: typing updates the page, and the file is saved after a short pause.
 
 Requires macOS 14 or later.
 
@@ -35,7 +35,9 @@ The commands are in the View menu. On a Mac set to Portuguese, the app uses the 
 | Source and page together | Side by side | Lado a lado | ⌘2 |
 | Slides | Presentation | Apresentação | ⌘4 |
 
-Side by side keeps the two panes on the same source line. Scroll one, and the other follows.
+Side by side keeps the two panes on the same source line. Scroll one, and the other follows. The text pane is where the file is edited. The page follows. After about half a second without typing, the file is written. ⌘S writes it at once. A save of your own does not mark the page as a change from outside.
+
+If another program writes the file while a sentence is unfinished, the sentence stays. A bar offers **Keep mine** or **Use the disk**. On a Portuguese Mac those are **Ficar com o meu** and **Trazer do disco**. Until you choose, your text is not written over the other version.
 
 ### Presentation
 

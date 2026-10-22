@@ -173,8 +173,8 @@ final class ReaderModelTests: XCTestCase {
         XCTAssertFalse(sync.isEcho(now: now.addingTimeInterval(ScrollSync.echoInterval)))
     }
 
-    func testSourceCannotBeEdited() {
-        XCTAssertFalse(SourceTextConfiguration.isEditable)
+    func testSourceIsPlainMarkdown() {
+        XCTAssertTrue(SourceTextConfiguration.isEditable)
         XCTAssertTrue(SourceTextConfiguration.isSelectable)
     }
 

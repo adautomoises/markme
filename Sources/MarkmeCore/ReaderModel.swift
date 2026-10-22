@@ -185,7 +185,7 @@ public struct ScrollSync: Equatable, Sendable {
 }
 
 public enum SourceTextConfiguration {
-    public static let isEditable = false
+    public static let isEditable = true
     public static let isSelectable = true
     public static let baseFontSize: CGFloat = 13
 

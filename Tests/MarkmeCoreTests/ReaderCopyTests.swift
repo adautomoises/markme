@@ -57,5 +57,15 @@ final class ReaderCopyTests: XCTestCase {
         XCTAssertEqual(ReaderCopy.string(.featureSpec, languageCode: "pt-BR"), "Spec")
         XCTAssertEqual(ReaderCopy.string(.featurePlan, languageCode: "pt-BR"), "Plano")
         XCTAssertEqual(ReaderCopy.string(.featurePlan, languageCode: "en"), "Plan")
+        XCTAssertEqual(ReaderCopy.string(.draftConflict, languageCode: "pt-BR"), "O arquivo mudou enquanto você escrevia.")
+        XCTAssertEqual(ReaderCopy.string(.draftConflict, languageCode: "en"), "The file changed while you were writing.")
+        XCTAssertEqual(ReaderCopy.string(.draftKeepMine, languageCode: "pt-BR"), "Ficar com o meu")
+        XCTAssertEqual(ReaderCopy.string(.draftKeepMine, languageCode: "en"), "Keep mine")
+        XCTAssertEqual(ReaderCopy.string(.draftUseDisk, languageCode: "pt"), "Trazer do disco")
+        XCTAssertEqual(ReaderCopy.string(.draftUseDisk, languageCode: "en"), "Use the disk")
+        XCTAssertEqual(ReaderCopy.string(.draftSaveFailed, languageCode: "pt-BR"), "Não foi possível gravar.")
+        XCTAssertEqual(ReaderCopy.string(.draftSaveFailed, languageCode: "en"), "Could not save.")
+        XCTAssertEqual(ReaderCopy.string(.save, languageCode: "pt-BR"), "Salvar")
+        XCTAssertEqual(ReaderCopy.string(.save, languageCode: "en"), "Save")
     }
 }
