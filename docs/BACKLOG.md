@@ -18,6 +18,7 @@ These overlap Nimbalyst and stay as they are.
 - A `mermaid` fence becomes a diagram. Other fences are colored, including Gherkin, Dart, Flutter, and Kotlin.
 - A relative link to another Markdown file opens in markme. A web link opens in the browser.
 - Headings have stable ids. The page can scroll to a line in the source.
+- A plan that cites a spec with `**Spec:**` in its opening is one reading: a map of the intent, goals, out of scope, and tasks, then the spec, then the plan. A task link scrolls on that page. The text view stays the opened file. Nothing is written, and a file without that line is unchanged.
 - `---` starts a slide in presentation.
 - The page follows the system appearance. Zoom and find are per window.
 

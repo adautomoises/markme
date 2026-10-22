@@ -104,6 +104,10 @@ The rest of the list is in [[weekend]].
 
 If nothing matches, the brackets stay as text. A normal link whose path ends in `.md` opens the same way. A web link opens in the browser. Raw HTML is left out of the page.
 
+### A plan and its spec
+
+A plan that cites a spec in its opening, with a line like `**Spec:**` followed by a Markdown path, opens as one reading. The page starts with the intent, the goals, what is out of scope, and the tasks. A task scrolls to itself on that page. The spec follows, then the plan. Text still shows the plan, the file that was opened. Nothing is written. A file without that line is unchanged. The spec path is next to the plan, or relative to the git checkout that contains it.
+
 Someone writing a note for this window can follow [What to tell an agent](docs/BACKLOG.md#what-to-tell-an-agent).
 
 ## Open files in markme from the Finder

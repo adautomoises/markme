@@ -56,6 +56,10 @@ public enum PageShell {
         .front-matter { margin: 0 0 1.6rem; }
         .front-title { font-size: 1.7rem; font-weight: 650; letter-spacing: -0.02em; margin: 0; }
         .front-status { margin: 0.3rem 0 0; color: #6e6e73; font-size: 13px; }
+        .feature-map { margin: 0 0 2.2rem; }
+        .feature-paths { margin-top: 0; color: #6e6e73; font-size: 13px; }
+        .feature-map h2 { font-size: 0.95rem; margin: 1.15rem 0 0.3rem; }
+        .feature-part { margin: 2.4rem 0 0.6rem; padding-top: 1.4rem; border-top: 1px solid #ececf0; }
         table { border-collapse: collapse; width: 100%; }
         th, td { text-align: left; padding: 8px 10px 8px 0; border-bottom: 1px solid #ececf0; }
         input[type="checkbox"] { pointer-events: none; }
@@ -91,6 +95,8 @@ public enum PageShell {
           blockquote.alert-caution { border-left-color: #f85149; background: rgba(248, 81, 73, 0.12); }
           blockquote.alert-caution .alert-title { color: #f85149; }
           .front-status { color: #98989d; }
+          .feature-paths { color: #98989d; }
+          .feature-part { border-top-color: #3a3a3c; }
           th, td { border-bottom-color: #3a3a3c; }
         }
         </style>

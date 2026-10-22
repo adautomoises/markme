@@ -48,5 +48,14 @@ final class ReaderCopyTests: XCTestCase {
         XCTAssertEqual(ReaderCopy.string(.alertCaution, languageCode: "pt-BR"), "Cuidado")
         XCTAssertEqual(ReaderCopy.string(.alertNote, languageCode: "en"), "Note")
         XCTAssertEqual(ReaderCopy.string(.alertCaution, languageCode: "en"), "Caution")
+        XCTAssertEqual(ReaderCopy.string(.featureGoals, languageCode: "pt-BR"), "Objetivos")
+        XCTAssertEqual(ReaderCopy.string(.featureGoals, languageCode: "en"), "Goals")
+        XCTAssertEqual(ReaderCopy.string(.featureNonGoals, languageCode: "pt"), "Fora")
+        XCTAssertEqual(ReaderCopy.string(.featureNonGoals, languageCode: "en"), "Out of scope")
+        XCTAssertEqual(ReaderCopy.string(.featureTasks, languageCode: "pt-BR"), "Tarefas")
+        XCTAssertEqual(ReaderCopy.string(.featureTasks, languageCode: "en"), "Tasks")
+        XCTAssertEqual(ReaderCopy.string(.featureSpec, languageCode: "pt-BR"), "Spec")
+        XCTAssertEqual(ReaderCopy.string(.featurePlan, languageCode: "pt-BR"), "Plano")
+        XCTAssertEqual(ReaderCopy.string(.featurePlan, languageCode: "en"), "Plan")
     }
 }

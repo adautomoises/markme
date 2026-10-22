@@ -19,6 +19,7 @@ struct ReaderView: View {
     @State private var sync = ScrollSync()
     @State private var zoom = ReaderZoom()
     @State private var slideIndex = 0
+    @State private var companionToken = 0
     @State private var presentationFullscreen = false
     @State private var hideToolbar = false
     @State private var toolbarNeedsRestore = false
@@ -136,8 +137,11 @@ struct ReaderView: View {
         .onChange(of: findPresented) { _, shown in
             findFieldFocused = shown
         }
+        .onChange(of: model.text) { _, _ in
+            refreshCompanion()
+        }
         .onDisappear { watcher.stop() }
-        .task(id: model.changeRevision) { await renderPage() }
+        .task(id: "\(model.changeRevision).\(companionToken)") { await renderPage() }
     }
 
     @ViewBuilder
@@ -422,10 +426,30 @@ struct ReaderView: View {
         let text = model.text
         let language = languageCode
         let highlighter = HighlighterLibrary.script
-        let mermaid = PageShell.containsMermaidFence(text) ? MermaidLibrary.script : ""
         let baseDirectory = fileURL?.deletingLastPathComponent()
+        let openedFile = fileURL
+        let cited = baseDirectory.flatMap {
+            FeaturePage.load(plan: text, planDirectory: $0, excluding: openedFile)
+        }
+        let needsDiagram = PageShell.containsMermaidFence(text)
+            || cited.map { PageShell.containsMermaidFence($0.markdown) } == true
+        let mermaid = needsDiagram ? MermaidLibrary.script : ""
+        let planLabel = openedFile?.lastPathComponent ?? ""
         let rendered = await Task.detached(priority: .userInitiated) {
-            let body = MarkdownRenderer.render(text, baseDirectory: baseDirectory, languageCode: language).htmlBody
+            let planBody = MarkdownRenderer.render(text, baseDirectory: baseDirectory, languageCode: language).htmlBody
+            let body: String
+            if let cited, let baseDirectory {
+                body = FeaturePage.compose(
+                    plan: text,
+                    planHTML: planBody,
+                    spec: cited,
+                    planDirectory: baseDirectory,
+                    planLabel: planLabel,
+                    languageCode: language
+                )
+            } else {
+                body = planBody
+            }
             let spans = baseline.map { ChangeReview.spans(from: $0, to: text) } ?? []
             let marked = ChangeReview.annotate(
                 html: body,
@@ -568,7 +592,23 @@ struct ReaderView: View {
         watcher.onChange = { data, detail in
             model.reload(data: data, failureDetail: detail)
         }
+        watcher.onCompanion = {
+            companionToken += 1
+            refreshCompanion()
+        }
         watcher.start(url: fileURL)
+        refreshCompanion()
+    }
+
+    /// The spec is not the opened file. A change there redraws the page and leaves the plan's change marks alone.
+    private func refreshCompanion() {
+        guard let fileURL else { return }
+        let spec = FeaturePage.load(
+            plan: model.text,
+            planDirectory: fileURL.deletingLastPathComponent(),
+            excluding: fileURL
+        )
+        watcher.watchCompanion(spec?.url)
     }
 
     static let bannerKey = "markme.bannerDismissed"
@@ -814,54 +854,43 @@ private struct WindowPlacement: NSViewRepresentable {
 
 final class FileWatcher: ObservableObject {
     var onChange: (Data?, String) -> Void = { _, _ in }
-    private var source: DispatchSourceFileSystemObject?
-    private var pending: DispatchWorkItem?
-    private var descriptor: CInt = -1
-    private var url: URL?
+    var onCompanion: () -> Void = {}
+    private var plan = Watch()
+    private var companion = Watch()
 
     func start(url: URL) {
-        stop()
-        self.url = url
-        descriptor = open(url.path, O_EVTONLY)
-        guard descriptor >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(
-            fileDescriptor: descriptor,
-            eventMask: [.write, .rename, .delete, .link],
-            queue: .global(qos: .utility)
-        )
-        source.setEventHandler { [weak self] in
-            let flags = source.data
-            let reopen = flags.contains(.rename) || flags.contains(.delete) || flags.contains(.link)
-            self?.schedule(reopen: reopen)
-        }
-        let descriptor = descriptor
-        source.setCancelHandler {
-            if descriptor >= 0 { close(descriptor) }
-        }
-        source.resume()
-        self.source = source
-    }
-
-    func stop() {
-        pending?.cancel()
-        source?.cancel()
-        source = nil
-        descriptor = -1
-    }
-
-    private func schedule(reopen: Bool) {
-        pending?.cancel()
-        let work = DispatchWorkItem { [weak self] in
+        plan.stop()
+        plan.url = url
+        plan.arm { [weak self] reopen in
             guard let self else { return }
-            if reopen, let url = self.url {
+            if reopen, let url = self.plan.url {
                 self.start(url: url)
             }
-            guard let url = self.url else { return }
+            guard let url = self.plan.url else { return }
             let outcome = Self.read(url)
             self.onChange(outcome.data, outcome.detail)
         }
-        pending = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
+    }
+
+    /// Pass nil to stop. The same path does not restart the watch.
+    func watchCompanion(_ url: URL?) {
+        guard url?.path != companion.url?.path else { return }
+        companion.stop()
+        guard let url else { return }
+        companion.url = url
+        companion.arm { [weak self] reopen in
+            guard let self else { return }
+            if reopen, let url = self.companion.url {
+                self.companion.stop()
+                self.watchCompanion(url)
+            }
+            self.onCompanion()
+        }
+    }
+
+    func stop() {
+        plan.stop()
+        companion.stop()
     }
 
     private static func read(_ url: URL) -> (data: Data?, detail: String) {
@@ -869,6 +898,53 @@ final class FileWatcher: ObservableObject {
             return (try Data(contentsOf: url), "")
         } catch {
             return (nil, error.localizedDescription)
+        }
+    }
+
+    private final class Watch {
+        var source: DispatchSourceFileSystemObject?
+        var pending: DispatchWorkItem?
+        var descriptor: CInt = -1
+        var url: URL?
+
+        func stop() {
+            pending?.cancel()
+            pending = nil
+            source?.cancel()
+            source = nil
+            descriptor = -1
+            url = nil
+        }
+
+        func arm(_ fire: @escaping (Bool) -> Void) {
+            guard let url else { return }
+            descriptor = open(url.path, O_EVTONLY)
+            guard descriptor >= 0 else { return }
+            let source = DispatchSource.makeFileSystemObjectSource(
+                fileDescriptor: descriptor,
+                eventMask: [.write, .rename, .delete, .link],
+                queue: .global(qos: .utility)
+            )
+            let descriptor = descriptor
+            source.setEventHandler { [weak self, weak source] in
+                let flags = source?.data ?? []
+                let reopen = flags.contains(.rename) || flags.contains(.delete) || flags.contains(.link)
+                self?.schedule(reopen: reopen, fire: fire)
+            }
+            source.setCancelHandler {
+                if descriptor >= 0 { close(descriptor) }
+            }
+            source.resume()
+            self.source = source
+        }
+
+        private func schedule(reopen: Bool, fire: @escaping (Bool) -> Void) {
+            pending?.cancel()
+            let work = DispatchWorkItem {
+                fire(reopen)
+            }
+            pending = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
         }
     }
 }
