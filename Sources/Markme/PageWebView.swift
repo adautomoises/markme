@@ -15,13 +15,22 @@ struct PageWebView: NSViewRepresentable {
     let slideIndex: Int
     let changeCursor: Int?
     let changeScrollToken: Int
+    let jumpLine: Int?
+    let jumpToken: Int
     var onSlide: (Int) -> Void
     var onLink: (URL) -> Void
     var onVisibleLine: (Int) -> Void
+    var onViewport: (ClosedRange<Int>) -> Void
     var onSelection: (Int, Bool) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onLink: onLink, onVisibleLine: onVisibleLine, onSelection: onSelection, onSlide: onSlide)
+        Coordinator(
+            onLink: onLink,
+            onVisibleLine: onVisibleLine,
+            onViewport: onViewport,
+            onSelection: onSelection,
+            onSlide: onSlide
+        )
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -32,12 +41,14 @@ struct PageWebView: NSViewRepresentable {
         view.setValue(false, forKey: "drawsBackground")
         view.pageZoom = zoom
         context.coordinator.pageZoom = zoom
+        context.coordinator.lastJumpToken = jumpToken
         return view
     }
 
     func updateNSView(_ view: WKWebView, context: Context) {
         context.coordinator.onLink = onLink
         context.coordinator.onVisibleLine = onVisibleLine
+        context.coordinator.onViewport = onViewport
         context.coordinator.onSelection = onSelection
         context.coordinator.onSlide = onSlide
         context.coordinator.pageZoom = zoom
@@ -93,6 +104,18 @@ struct PageWebView: NSViewRepresentable {
             context.coordinator.lastScroll = scrollToLine
             view.evaluateJavaScript("window.markmeScrollToLine && window.markmeScrollToLine(\(scrollToLine))", completionHandler: nil)
         }
+        if jumpToken != context.coordinator.lastJumpToken {
+            context.coordinator.lastJumpToken = jumpToken
+            if let jumpLine {
+                if context.coordinator.awaitingLoad {
+                    // The page script is not there yet. The load replays it.
+                    context.coordinator.pendingJump = jumpLine
+                } else {
+                    context.coordinator.pendingJump = nil
+                    view.evaluateJavaScript("window.markmeScrollToLine && window.markmeScrollToLine(\(jumpLine))", completionHandler: nil)
+                }
+            }
+        }
         if anchorToken != context.coordinator.lastAnchorToken {
             context.coordinator.lastAnchorToken = anchorToken
             context.coordinator.pendingAnchor = scrollToAnchor
@@ -105,8 +128,12 @@ struct PageWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var onLink: (URL) -> Void
         var onVisibleLine: (Int) -> Void
+        var onViewport: (ClosedRange<Int>) -> Void
         var onSelection: (Int, Bool) -> Void
         var onSlide: (Int) -> Void
+        var lastJumpToken = 0
+        /// A minimap jump that came while the page was loading.
+        var pendingJump: Int?
         var lastHTML: String?
         var lastBase: URL?
         var lastFind: String?
@@ -164,11 +191,13 @@ struct PageWebView: NSViewRepresentable {
         init(
             onLink: @escaping (URL) -> Void,
             onVisibleLine: @escaping (Int) -> Void,
+            onViewport: @escaping (ClosedRange<Int>) -> Void,
             onSelection: @escaping (Int, Bool) -> Void,
             onSlide: @escaping (Int) -> Void
         ) {
             self.onLink = onLink
             self.onVisibleLine = onVisibleLine
+            self.onViewport = onViewport
             self.onSelection = onSelection
             self.onSlide = onSlide
         }
@@ -181,6 +210,14 @@ struct PageWebView: NSViewRepresentable {
                     onSelection(line, collapsed)
                 } else {
                     onSelection(0, true)
+                }
+                return
+            }
+            if let body = message.body as? [String: Any], (body["kind"] as? String) == "viewport" {
+                let top = Self.scriptInt(body["top"]) ?? 0
+                let bottom = Self.scriptInt(body["bottom"]) ?? 0
+                if top > 0 {
+                    onViewport(top...max(top, bottom))
                 }
                 return
             }
@@ -202,7 +239,7 @@ struct PageWebView: NSViewRepresentable {
             guard let data = try? JSONSerialization.data(withJSONObject: [html]),
                   let json = String(data: data, encoding: .utf8) else { return }
             webView.evaluateJavaScript(
-                "window.markmeReplace && window.markmeReplace(\(json)[0])",
+                "window.markmeReplace && window.markmeReplace(\(json)[0]); window.markmeReportViewport && window.markmeReportViewport()",
                 completionHandler: nil
             )
         }
@@ -212,7 +249,14 @@ struct PageWebView: NSViewRepresentable {
             webView.pageZoom = pageZoom
             applyPresentation(in: webView)
             webView.evaluateJavaScript(Self.scrollScript) { _, _ in
-                if let pending = self.pendingAnchor {
+                if let line = self.pendingJump {
+                    // The newest thing the person asked for.
+                    self.pendingJump = nil
+                    webView.evaluateJavaScript(
+                        "window.markmeScrollToLine && window.markmeScrollToLine(\(line))",
+                        completionHandler: nil
+                    )
+                } else if let pending = self.pendingAnchor {
                     Self.scrollToAnchor(pending, in: webView)
                 } else if self.pendingChangeToken > 0, let cursor = self.pendingChangeCursor {
                     self.pendingChangeCursor = nil
@@ -341,6 +385,53 @@ struct PageWebView: NSViewRepresentable {
             });
             window.webkit.messageHandlers.markme.postMessage(line);
           };
+          const reportViewport = () => {
+            if (document.body.classList.contains('presenting')) return;
+            const nodes = document.querySelectorAll('[data-sourcepos]');
+            const height = window.innerHeight;
+            let top = 0;
+            let first = 0;
+            let bottom = 0;
+            let best = -1e9;
+            // The last source line scrolled past. A composed spec has no source lines, so the band rests here.
+            let above = 0;
+            let aboveBottom = -1e9;
+            nodes.forEach((node) => {
+              if (!node.getClientRects().length) return;
+              const rect = node.getBoundingClientRect();
+              const pos = sourcePos(node);
+              if (!pos) return;
+              if (rect.bottom <= 0 && rect.bottom >= aboveBottom) {
+                aboveBottom = rect.bottom;
+                above = pos.end;
+              }
+              if (rect.bottom <= 0 || rect.top >= height) return;
+              if (rect.top <= 0 && rect.top >= best) {
+                best = rect.top;
+                top = pos.start;
+              }
+              if (!first || pos.start < first) first = pos.start;
+              bottom = Math.max(bottom, rect.bottom <= height ? pos.end : pos.start);
+            });
+            if (!top && !first) {
+              if (above) window.webkit.messageHandlers.markme.postMessage({ kind: 'viewport', top: above, bottom: above });
+              return;
+            }
+            if (!top) top = first;
+            window.webkit.messageHandlers.markme.postMessage({ kind: 'viewport', top: top, bottom: Math.max(top, bottom) });
+          };
+          let viewportFrame = 0;
+          const scheduleViewport = () => {
+            if (viewportFrame) return;
+            viewportFrame = requestAnimationFrame(() => {
+              viewportFrame = 0;
+              reportViewport();
+            });
+          };
+          window.markmeReportViewport = scheduleViewport;
+          document.addEventListener('scroll', scheduleViewport, true);
+          window.addEventListener('resize', scheduleViewport);
+          scheduleViewport();
           document.addEventListener('scroll', report, true);
           document.addEventListener('selectionchange', () => {
             const sel = window.getSelection();

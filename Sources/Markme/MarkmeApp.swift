@@ -3,6 +3,8 @@ import MarkmeCore
 
 @main
 struct MarkmeApp: App {
+    @AppStorage(ReaderView.minimapKey) private var showsMinimap = true
+
     private var languageCode: String {
         Locale.current.language.languageCode?.identifier ?? "en"
     }
@@ -68,6 +70,8 @@ struct MarkmeApp: App {
                     NotificationCenter.default.post(name: .markmeFind, object: nil)
                 }
                 .keyboardShortcut("f", modifiers: .command)
+                Toggle(ReaderCopy.string(.minimap, languageCode: languageCode), isOn: $showsMinimap)
+                    .keyboardShortcut("m", modifiers: [.command, .shift])
                 Divider()
                 Button(ReaderCopy.string(.menuMakeDefault, languageCode: languageCode)) {
                     DefaultReader.request()

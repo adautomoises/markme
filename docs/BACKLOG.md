@@ -13,6 +13,7 @@ These overlap Nimbalyst and stay as they are.
 - The formatted page is the default. Text and side by side are one menu away.
 - Text and side by side edit the Markdown. The page follows. The file is written after a short pause, and ⌘S writes it at once. That write is not marked as an outside change.
 - The file reloads when it changes on disk and the sentence on screen already matches the last save. The reading position is kept. New lines are marked, a short marker shows where text was removed, and a bar steps through those marks. Seen clears them. An outside write during an unfinished sentence waits for Keep mine or Use the disk.
+- A minimap beside the window shows every line, marks the part on screen, and scrolls there on a click or drag. It also marks lines added, changed, or removed since the window opened, and the text gutter shows the same marks. A click on a mark shows the opened lines and can revert that change, which writes the file like any edit. The comparison is with the opened text, not with git.
 - Copy Location puts `path:line` on the clipboard. A selection uses that line. A caret uses the heading above it. Inside a git checkout the path is relative to the checkout root. Nothing is launched.
 - A GitHub alert shows its label. YAML at the top of the file shows title and status on the page. A wikilink opens a Markdown file in the same folder or one folder down.
 - GitHub-flavored Markdown: tables, task lists, strikethrough, footnotes, autolinks.
@@ -29,7 +30,7 @@ These stay there. Importing them would turn markme into a project tool.
 
 - Running agents, sessions, kanban, workstreams, and worktrees.
 - Git: staging, commits, branches, pull requests, and a terminal.
-- Writing the file. Nimbalyst can keep or revert an agent edit. Revert writes the file. markme only reads. Cut and paste inside the document stay off. Copy stays on.
+- Keeping or reverting an edit by agent session, and writing any file other than the open one. markme reverts one change against the text the window opened, and that writes only the open file.
 - WYSIWYG editing, Monaco, Excalidraw, CSV grids, mockups, and an extension marketplace.
 - Accounts, sync, multiplayer cursors, telemetry, and a mobile companion.
 - A folder tree or a project panel. One file, one window.

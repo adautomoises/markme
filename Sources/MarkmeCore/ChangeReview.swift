@@ -200,7 +200,7 @@ public enum ChangeReview {
     ]
     private static let voidNames: Set<String> = ["br", "hr", "img", "input"]
 
-    private static func lines(_ text: String) -> [String] {
+    static func lines(_ text: String) -> [String] {
         let normalized = text
             .replacingOccurrences(of: "\r\n", with: "\n")
             .replacingOccurrences(of: "\r", with: "\n")

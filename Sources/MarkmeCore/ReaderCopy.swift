@@ -35,6 +35,11 @@ public enum CopyKey: String, Sendable {
     case draftUseDisk
     case draftSaveFailed
     case save
+    case minimap
+    case revertChange
+    case goToChange
+    case peekBefore
+    case peekNow
 }
 
 public enum ReaderCopy {
@@ -92,7 +97,55 @@ public enum ReaderCopy {
         case .draftSaveFailed:
             return portuguese ? "Não foi possível gravar." : "Could not save."
         case .save: return portuguese ? "Salvar" : "Save"
+        case .minimap: return portuguese ? "Minimapa" : "Minimap"
+        case .revertChange: return portuguese ? "Reverter" : "Revert"
+        case .goToChange: return portuguese ? "Ir para" : "Go to"
+        case .peekBefore: return portuguese ? "Antes" : "Before"
+        case .peekNow: return portuguese ? "Agora" : "Now"
         }
+    }
+
+    public static func linesAdded(_ count: Int, languageCode: String) -> String {
+        let portuguese = languageCode.lowercased().hasPrefix("pt")
+        if count == 1 {
+            return portuguese ? "1 linha nova" : "1 new line"
+        }
+        return portuguese ? "\(count) linhas novas" : "\(count) new lines"
+    }
+
+    public static func linesChanged(_ count: Int, languageCode: String) -> String {
+        let portuguese = languageCode.lowercased().hasPrefix("pt")
+        if count == 1 {
+            return portuguese ? "1 linha alterada" : "1 changed line"
+        }
+        return portuguese ? "\(count) linhas alteradas" : "\(count) changed lines"
+    }
+
+    public static func lineNumber(_ line: Int, languageCode: String) -> String {
+        let portuguese = languageCode.lowercased().hasPrefix("pt")
+        return portuguese ? "linha \(line)" : "line \(line)"
+    }
+
+    /// The VoiceOver action that reverts one mark, such as "Revert: 2 changed lines, line 12".
+    public static func revertAction(_ mark: EditMark, languageCode: String) -> String {
+        let what: String
+        switch mark.kind {
+        case .added(let lines): what = linesAdded(lines.count, languageCode: languageCode)
+        case .modified(let lines): what = linesChanged(lines.count, languageCode: languageCode)
+        case .removed(_, let count): what = linesRemoved(count, languageCode: languageCode)
+        }
+        let verb = string(.revertChange, languageCode: languageCode)
+        return "\(verb): \(what), \(lineNumber(mark.focusLine, languageCode: languageCode))"
+    }
+
+    /// What changed since the window opened, for the minimap tooltip.
+    public static func editSummary(added: Int, modified: Int, removed: Int, languageCode: String) -> String {
+        let portuguese = languageCode.lowercased().hasPrefix("pt")
+        if added == 0, modified == 0, removed == 0 {
+            return portuguese ? "Sem mudanças desde a abertura" : "No changes since opened"
+        }
+        let suffix = portuguese ? "desde a abertura" : "since opened"
+        return "+\(added) ~\(modified) −\(removed) \(suffix)"
     }
 
     public static func linesRemoved(_ count: Int, languageCode: String) -> String {

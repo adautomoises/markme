@@ -38,6 +38,17 @@ struct ReaderView: View {
     @State private var pageSelectionCollapsed = true
     /// Change navigation scrolls both panes itself. Ignore the bounds events that scroll posts.
     @State private var ignoreScrollSyncUntil: Date?
+    /// The text the window opened with. Edit marks compare against it until the window closes.
+    @State private var originalText: String?
+    @State private var editMarks: [EditMark] = []
+    @State private var minimapLines: [MinimapLine] = []
+    /// Not observed here. Scrolling redraws the minimap, not the panes.
+    @State private var viewports = MinimapViewport()
+    @State private var jumpLine: Int?
+    @State private var jumpToken = 0
+    @State private var replacement: TextReplacement?
+    @State private var replacementToken = 0
+    @AppStorage(Self.minimapKey) private var showsMinimap = true
     @FocusState private var findFieldFocused: Bool
     @StateObject private var watcher = FileWatcher()
 
@@ -49,6 +60,7 @@ struct ReaderView: View {
         let model = ReaderModel(fileName: name, data: data, bannerDismissed: dismissed)
         _model = State(initialValue: model)
         _draft = State(initialValue: DraftSync(saved: model.failure == nil ? model.text : ""))
+        _originalText = State(initialValue: model.failure == nil ? model.text : nil)
     }
 
     var body: some View {
@@ -188,15 +200,96 @@ struct ReaderView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding()
         } else {
-            switch model.mode {
-            case .page, .presentation:
-                page
-            case .source:
-                source
-            case .split:
-                splitBody
+            HStack(spacing: 0) {
+                switch model.mode {
+                case .page, .presentation:
+                    page
+                case .source:
+                    source
+                case .split:
+                    splitBody
+                }
+                if showsMinimap, model.mode != .presentation {
+                    minimap
+                }
             }
         }
+    }
+
+    private var minimap: some View {
+        let counts = EditMarks.counts(editMarks)
+        return MinimapView(
+            lines: minimapLines,
+            marks: editMarks,
+            counts: counts,
+            viewports: viewports,
+            follows: minimapPane,
+            summary: ReaderCopy.editSummary(
+                added: counts.added,
+                modified: counts.modified,
+                removed: counts.removed,
+                languageCode: languageCode
+            ),
+            languageCode: languageCode,
+            onJump: jump,
+            onRevert: revert,
+            peek: { index, close in peekView(index, close: close, allowsGo: true) }
+        )
+    }
+
+    private var minimapPane: MinimapViewport.Pane? {
+        switch model.mode {
+        case .page, .presentation: return .page
+        case .source: return .source
+        case .split: return nil
+        }
+    }
+
+    private func peekView(_ index: Int, close: @escaping () -> Void, allowsGo: Bool) -> AnyView {
+        guard editMarks.indices.contains(index) else { return AnyView(EmptyView()) }
+        let mark = editMarks[index]
+        let current: [String]
+        switch mark.kind {
+        case .added(let lines), .modified(let lines):
+            current = EditMarks.lines(lines, in: model.text)
+        case .removed:
+            current = []
+        }
+        return AnyView(EditPeekView(
+            mark: mark,
+            current: current,
+            languageCode: languageCode,
+            onRevert: {
+                close()
+                revert(mark)
+            },
+            onGo: allowsGo ? {
+                close()
+                jump(to: max(mark.focusLine - 3, 1))
+            } : nil
+        ))
+    }
+
+    /// Puts one mark back the way the window opened it. In Text the editor applies it, so ⌘Z undoes it.
+    private func revert(_ mark: EditMark) {
+        guard let originalText,
+              let next = EditMarks.revert(mark, original: originalText, current: model.text) else {
+            NSSound.beep()
+            return
+        }
+        if model.mode == .source || model.mode == .split {
+            replacement = EditMarks.replacement(from: model.text, to: next)
+            replacementToken += 1
+        } else {
+            noteTyped(next)
+        }
+    }
+
+    /// The minimap moves every pane it can see. Scroll sync stays out of the way until the panes settle.
+    private func jump(to line: Int) {
+        ignoreScrollSyncUntil = Date().addingTimeInterval(0.4)
+        jumpLine = line
+        jumpToken += 1
     }
 
     private var page: some View {
@@ -213,11 +306,16 @@ struct ReaderView: View {
             slideIndex: slideIndex,
             changeCursor: model.changeCursor,
             changeScrollToken: changeScrollToken,
+            jumpLine: jumpLine,
+            jumpToken: jumpToken,
             onSlide: { slideIndex = $0 },
             onLink: open,
             onVisibleLine: { line in
                 pageScrolled(line)
                 if pageSelectionCollapsed { pageCaretLine = line }
+            },
+            onViewport: { [viewports] range in
+                if viewports.page != range { viewports.page = range }
             },
             onSelection: { line, collapsed in
                 if line > 0 { pageCaretLine = line }
@@ -244,7 +342,16 @@ struct ReaderView: View {
             changes: model.changes,
             changeCursor: model.changeCursor,
             changeScrollToken: changeScrollToken,
+            editMarks: editMarks,
+            jumpLine: jumpLine,
+            jumpToken: jumpToken,
+            replacement: replacement,
+            replacementToken: replacementToken,
+            peek: { index, close in peekView(index, close: close, allowsGo: false) },
             onVisibleLine: sourceScrolled,
+            onViewport: { [viewports] range in
+                if viewports.source != range { viewports.source = range }
+            },
             onSelection: { line, collapsed in
                 sourceCaretLine = line
                 sourceSelectionCollapsed = collapsed
@@ -424,12 +531,14 @@ struct ReaderView: View {
         return Button {
             model.mode = mode
         } label: {
+            // The toolbar groups these in one capsule. A capsule highlight follows its rounded ends.
             Image(systemName: symbol)
                 .frame(width: 32, height: 28)
                 .background(
                     model.mode == mode ? Color.primary.opacity(0.12) : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 6)
+                    in: Capsule()
                 )
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
         .help(copy(key))
@@ -499,7 +608,13 @@ struct ReaderView: View {
         let planLabel = openedFile?.lastPathComponent ?? ""
         let rememberedSpans = model.changes
         let rememberedCursor = model.changeCursor
+        if originalText == nil, model.failure == nil {
+            originalText = text
+        }
+        let original = originalText ?? text
         let rendered = await Task.detached(priority: .userInitiated) {
+            let marks = EditMarks.marks(from: original, to: text)
+            let minimap = Minimap.lines(in: text)
             let planBody = MarkdownRenderer.render(text, baseDirectory: baseDirectory, languageCode: language).htmlBody
             let spans: [ChangeSpan]
             let selected: Int?
@@ -530,9 +645,11 @@ struct ReaderView: View {
                 body = markedPlan
             }
             let html = PageShell.html(body: body, highlighter: highlighter, mermaid: mermaid)
-            return (html: html, body: body, spans: spans)
+            return (html: html, body: body, spans: spans, marks: marks, minimap: minimap)
         }.value
         guard generation == renderGeneration, model.changeRevision == revision else { return }
+        editMarks = rendered.marks
+        minimapLines = rendered.minimap
         if baseline != nil {
             model.adoptChanges(rendered.spans, revision: revision)
             changeScrollToken = 0
@@ -605,6 +722,7 @@ struct ReaderView: View {
         let now = Date()
         guard !scrollSyncIsPaused(now), model.mode == .split else { return }
         sync.markEcho(now: now)
+        if viewports.leading != .page { viewports.leading = .page }
         sourceScrollLine = line
     }
 
@@ -612,6 +730,7 @@ struct ReaderView: View {
         let now = Date()
         guard !scrollSyncIsPaused(now), model.mode == .split else { return }
         sync.markEcho(now: now)
+        if viewports.leading != .source { viewports.leading = .source }
         pageScrollLine = line
     }
 
@@ -685,6 +804,7 @@ struct ReaderView: View {
     }
 
     static let bannerKey = "markme.bannerDismissed"
+    static let minimapKey = "markme.minimap"
 
     private func noteTyped(_ text: String) {
         model.text = text

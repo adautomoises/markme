@@ -39,6 +39,24 @@ Side by side keeps the two panes on the same source line. Scroll one, and the ot
 
 If another program writes the file while a sentence is unfinished, the sentence stays. A bar offers **Keep mine** or **Use the disk**. On a Portuguese Mac those are **Ficar com o meu** and **Trazer do disco**. Until you choose, your text is not written over the other version.
 
+### Minimap
+
+A narrow column on the right shows the whole file, one thin row per line. Headings stand out, and code fences have their own color. A band marks the part on screen. Click or drag in the column to go there. It works in Text, Side by side, and Page, and it is hidden during a presentation.
+
+The minimap also marks every line that differs from the file as it was when the window opened, the way an editor marks lines that differ from git:
+
+- green: a new line
+- blue: a changed line
+- red wedge: lines were removed here
+
+The same marks sit in the line-number gutter of Text. Your typing and a write from another program both count. A chip under the minimap counts them, such as “+3 ~2 −1”, and steps to the next one. Closing the window starts over. markme does not run git.
+
+Click a mark at the left edge of the minimap, or in the gutter of Text, to see what the file had there when it opened. Before (Antes) lists those lines, and Now (Agora) lists the lines that replaced them. Revert (Reverter) puts that one change back, and the file is saved like any edit. In Text, ⌘Z undoes the revert.
+
+Every edit is written to the file after half a second. To get the opened text back, revert the marks, or press ⌘Z in Text before closing the window.
+
+Minimap (Minimapa, ⇧⌘M) in the View menu shows or hides it. The choice is kept for the next window.
+
 ### Presentation
 
 A `---` between sections starts the next slide. The `---` of a YAML block at the top of the file does not.
@@ -55,6 +73,7 @@ These are in the same View menu.
 | Smaller | Zoom Out | Diminuir | ⌘− |
 | Back to 100% | Actual Size | Tamanho real | ⌘0 |
 | Search this file | Find | Buscar | ⌘F |
+| Show or hide the minimap | Minimap | Minimapa | ⇧⌘M |
 
 Command and the mouse wheel zoom the same way. Escape closes Find. Find stays hidden during a presentation.
 

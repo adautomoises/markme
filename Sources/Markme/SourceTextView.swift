@@ -12,12 +12,19 @@ struct SourceTextView: NSViewRepresentable {
     let changes: [ChangeSpan]
     let changeCursor: Int?
     let changeScrollToken: Int
+    let editMarks: [EditMark]
+    let jumpLine: Int?
+    let jumpToken: Int
+    let replacement: TextReplacement?
+    let replacementToken: Int
+    var peek: (Int, @escaping () -> Void) -> AnyView
     var onVisibleLine: (Int) -> Void
+    var onViewport: (ClosedRange<Int>) -> Void
     var onSelection: (Int, Bool) -> Void
     var onEdit: (String) -> Void
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onVisibleLine: onVisibleLine, onSelection: onSelection, onEdit: onEdit)
+        Coordinator(onVisibleLine: onVisibleLine, onViewport: onViewport, onSelection: onSelection, onEdit: onEdit)
     }
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -59,7 +66,13 @@ struct SourceTextView: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.reportSelection()
         context.coordinator.lastZoom = zoom
+        context.coordinator.lastJumpToken = jumpToken
+        context.coordinator.lastReplacementToken = replacementToken
+        context.coordinator.peek = peek
         context.coordinator.ruler = ruler
+        ruler.onMark = { [weak coordinator = context.coordinator] index, rect in
+            coordinator?.presentPeek(index, at: rect)
+        }
         scroll.contentView.postsBoundsChangedNotifications = true
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -67,11 +80,24 @@ struct SourceTextView: NSViewRepresentable {
             name: NSView.boundsDidChangeNotification,
             object: scroll.contentView
         )
+        // A taller window, a moved divider, or a new zoom shows a different span of lines.
+        scroll.contentView.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.frameChanged(_:)),
+            name: NSView.frameDidChangeNotification,
+            object: scroll.contentView
+        )
+        DispatchQueue.main.async { [weak coordinator = context.coordinator] in
+            coordinator?.reportViewport()
+        }
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.onVisibleLine = onVisibleLine
+        context.coordinator.onViewport = onViewport
+        context.coordinator.peek = peek
         context.coordinator.onSelection = onSelection
         context.coordinator.onEdit = onEdit
         guard let textView = scroll.documentView as? NSTextView else { return }
@@ -89,6 +115,9 @@ struct SourceTextView: NSViewRepresentable {
                 weight: .regular
             )
             context.coordinator.ruler?.needsDisplay = true
+            DispatchQueue.main.async { [weak coordinator = context.coordinator] in
+                coordinator?.reportViewport()
+            }
         }
         if textView.string != text {
             context.coordinator.applyingExternal = true
@@ -113,10 +142,32 @@ struct SourceTextView: NSViewRepresentable {
             context.coordinator.scroll(to: scrollToLine)
         }
         context.coordinator.applyChanges(changes, cursor: changeCursor, token: changeScrollToken)
+        if context.coordinator.lastEditMarks != editMarks {
+            context.coordinator.lastEditMarks = editMarks
+            context.coordinator.ruler?.gutter = EditGutter(editMarks)
+            context.coordinator.ruler?.needsDisplay = true
+        }
+        if context.coordinator.lastJumpToken != jumpToken {
+            context.coordinator.lastJumpToken = jumpToken
+            if let jumpLine {
+                context.coordinator.scrollToTop(line: jumpLine)
+            }
+        }
+        if context.coordinator.lastReplacementToken != replacementToken {
+            context.coordinator.lastReplacementToken = replacementToken
+            if let replacement {
+                // The edit reports back through the text delegate, which changes SwiftUI state.
+                // Doing that inside this update would be dropped, and the next update would put the old text back.
+                DispatchQueue.main.async { [weak coordinator = context.coordinator] in
+                    coordinator?.apply(replacement)
+                }
+            }
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
         var onVisibleLine: (Int) -> Void
+        var onViewport: (ClosedRange<Int>) -> Void
         var onSelection: (Int, Bool) -> Void
         var onEdit: (String) -> Void
         weak var textView: NSTextView?
@@ -130,13 +181,20 @@ struct SourceTextView: NSViewRepresentable {
         var lastChangeCursor: Int?
         var lastChangeToken = 0
         var lastHighlighted = ""
+        var lastEditMarks: [EditMark] = []
+        var lastJumpToken = 0
+        var lastReplacementToken = 0
+        var peek: ((Int, @escaping () -> Void) -> AnyView)?
+        private var popover: NSPopover?
 
         init(
             onVisibleLine: @escaping (Int) -> Void,
+            onViewport: @escaping (ClosedRange<Int>) -> Void,
             onSelection: @escaping (Int, Bool) -> Void,
             onEdit: @escaping (String) -> Void
         ) {
             self.onVisibleLine = onVisibleLine
+            self.onViewport = onViewport
             self.onSelection = onSelection
             self.onEdit = onEdit
         }
@@ -146,6 +204,7 @@ struct SourceTextView: NSViewRepresentable {
             guard !applyingExternal, let textView else { return }
             ruler?.needsDisplay = true
             onEdit(textView.string)
+            reportViewport()
             settleMarkdownWindow(textView.window)
             DispatchQueue.main.async { [weak textView] in
                 settleMarkdownWindow(textView?.window)
@@ -165,9 +224,7 @@ struct SourceTextView: NSViewRepresentable {
         }
 
         static func lineNumber(location: Int, in text: String) -> Int {
-            let ns = text as NSString
-            let end = min(max(location, 0), ns.length)
-            return ns.substring(to: end).components(separatedBy: "\n").count
+            LineBreaks.line(at: location, in: text as NSString)
         }
 
         @MainActor
@@ -175,6 +232,73 @@ struct SourceTextView: NSViewRepresentable {
             ruler?.needsDisplay = true
             guard let textView else { return }
             onVisibleLine(Self.visibleLine(in: textView))
+            reportViewport()
+        }
+
+        @MainActor
+        @objc func frameChanged(_ notification: Notification) {
+            reportViewport()
+        }
+
+        @MainActor
+        func reportViewport() {
+            guard let textView else { return }
+            let top = Self.visibleLine(in: textView)
+            let bottom = Self.visibleLine(in: textView, atBottom: true)
+            onViewport(top...max(top, bottom))
+        }
+
+        /// One undoable edit, as if typed. The delegate then saves it like any other keystroke.
+        @MainActor
+        func apply(_ replacement: TextReplacement) {
+            guard let textView else { return }
+            let length = (textView.string as NSString).length
+            guard replacement.location >= 0, replacement.length >= 0,
+                  replacement.location + replacement.length <= length else { return }
+            let range = NSRange(location: replacement.location, length: replacement.length)
+            guard textView.shouldChangeText(in: range, replacementString: replacement.text) else { return }
+            textView.textStorage?.replaceCharacters(in: range, with: replacement.text)
+            textView.didChangeText()
+            let inserted = NSRange(location: replacement.location, length: (replacement.text as NSString).length)
+            textView.setSelectedRange(NSRange(location: replacement.location, length: 0))
+            textView.scrollRangeToVisible(inserted)
+        }
+
+        @MainActor
+        func presentPeek(_ index: Int, at rect: NSRect) {
+            guard let ruler, let peek else { return }
+            popover?.close()
+            let popover = NSPopover()
+            popover.behavior = .transient
+            let close: () -> Void = { [weak popover] in popover?.performClose(nil) }
+            let host = NSHostingController(rootView: peek(index, close))
+            host.sizingOptions = [.preferredContentSize]
+            popover.contentViewController = host
+            popover.show(relativeTo: rect, of: ruler, preferredEdge: .maxX)
+            self.popover = popover
+        }
+
+        /// Puts the start of `line` at the top of the pane, or as near as the end of the text allows.
+        @MainActor
+        func scrollToTop(line: Int) {
+            guard let textView,
+                  let layout = textView.layoutManager,
+                  let scroll = textView.enclosingScrollView else { return }
+            let ns = textView.string as NSString
+            let index = Self.characterIndex(ofLine: line, in: ns)
+            layout.ensureLayout(forCharacterRange: NSRange(location: 0, length: min(index + 1, ns.length)))
+            let y: CGFloat
+            if index >= ns.length, ns.length > 0 {
+                y = .greatestFiniteMagnitude
+            } else {
+                let glyph = layout.glyphIndexForCharacter(at: index)
+                y = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minY
+            }
+            let clip = scroll.contentView
+            let limit = max(textView.frame.height - clip.bounds.height, 0)
+            let target = min(max(y + textView.textContainerOrigin.y - textView.textContainerInset.height, 0), limit)
+            clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: target))
+            scroll.reflectScrolledClipView(clip)
         }
 
         @MainActor
@@ -206,25 +330,24 @@ struct SourceTextView: NSViewRepresentable {
         func scroll(to line: Int) {
             guard let textView else { return }
             let ns = textView.string as NSString
-            var current = 1
-            var index = 0
-            while current < line, index < ns.length {
-                if ns.character(at: index) == 10 { current += 1 }
-                index += 1
-            }
-            textView.scrollRangeToVisible(NSRange(location: min(index, ns.length), length: 0))
+            textView.scrollRangeToVisible(NSRange(location: Self.characterIndex(ofLine: line, in: ns), length: 0))
+        }
+
+        /// UTF-16 offset where the 1-based `line` starts, or the end of the text.
+        static func characterIndex(ofLine line: Int, in ns: NSString) -> Int {
+            LineBreaks.offset(ofLine: line, in: ns)
         }
 
         @MainActor
-        static func visibleLine(in textView: NSTextView) -> Int {
+        static func visibleLine(in textView: NSTextView, atBottom: Bool = false) -> Int {
             guard let layout = textView.layoutManager, let container = textView.textContainer else { return 1 }
-            let origin = textView.enclosingScrollView?.contentView.bounds.origin ?? .zero
-            let point = NSPoint(x: origin.x + textView.textContainerInset.width, y: origin.y + textView.textContainerInset.height)
+            let bounds = textView.enclosingScrollView?.contentView.bounds ?? .zero
+            let inset = textView.textContainerInset
+            let y = atBottom ? bounds.maxY - inset.height - 1 : bounds.origin.y + inset.height
+            let point = NSPoint(x: bounds.origin.x + inset.width, y: max(y, 0))
             let glyph = layout.glyphIndex(for: point, in: container, fractionOfDistanceThroughGlyph: nil)
             let char = layout.characterIndexForGlyph(at: glyph)
-            let ns = textView.string as NSString
-            let end = min(char, ns.length)
-            return ns.substring(to: end).components(separatedBy: "\n").count
+            return LineBreaks.line(at: char, in: textView.string as NSString)
         }
 
         static let addedColor = NSColor(name: nil) { appearance in
@@ -281,6 +404,39 @@ func settleMarkdownWindow(_ window: NSWindow?) {
 
 final class LineNumberRuler: NSRulerView {
     weak var textView: NSTextView?
+    /// Lines that differ from the text the window opened with.
+    var gutter = EditGutter()
+    /// A click on a mark: the mark index and the clicked line's rect in this ruler.
+    var onMark: (Int, NSRect) -> Void = { _, _ in }
+    private static let markWidth: CGFloat = 3
+
+    override func mouseDown(with event: NSEvent) {
+        guard let textView, let layout = textView.layoutManager, let container = textView.textContainer else {
+            super.mouseDown(with: event)
+            return
+        }
+        let point = convert(event.locationInWindow, from: nil)
+        let visible = scrollView?.contentView.bounds ?? bounds
+        let inset = textView.textContainerInset.height
+        let textY = point.y + visible.minY - inset
+        guard textY >= 0 else { return }
+        let glyph = layout.glyphIndex(for: NSPoint(x: 0, y: textY), in: container)
+        let fragment = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let ns = textView.string as NSString
+        let char = min(layout.characterIndexForGlyph(at: glyph), ns.length)
+        var line = LineBreaks.line(at: char, in: ns)
+        var hit = fragment
+        if textY > fragment.maxY {
+            // Below the last line. Only the empty line after a final newline counts, not the blank space under it.
+            let extra = layout.extraLineFragmentRect
+            guard !extra.isEmpty, textY <= extra.maxY, LineBreaks.isBreak(at: ns.length - 1, in: ns) else { return }
+            line += 1
+            hit = extra
+        }
+        guard let index = gutter.mark(nearLine: line) else { return }
+        let rect = NSRect(x: 0, y: hit.minY - visible.minY + inset, width: ruleThickness, height: max(hit.height, 4))
+        onMark(index, rect)
+    }
 
     init(textView: NSTextView) {
         self.textView = textView
@@ -308,13 +464,55 @@ final class LineNumberRuler: NSRulerView {
             var lineRange = NSRange()
             let fragment = layout.lineFragmentRect(forGlyphAt: glyph, effectiveRange: &lineRange)
             let charIndex = layout.characterIndexForGlyph(at: glyph)
-            let lineNumber = ns.substring(to: min(charIndex, ns.length)).components(separatedBy: "\n").count
+            let lineNumber = LineBreaks.line(at: charIndex, in: ns)
             let y = fragment.minY - visible.minY + textView.textContainerInset.height
             let label = "\(lineNumber)" as NSString
             let size = label.size(withAttributes: attributes)
             label.draw(at: NSPoint(x: ruleThickness - size.width - 8, y: y), withAttributes: attributes)
+            drawMarks(line: lineNumber, top: y, height: fragment.height, glyphs: lineRange, layout: layout, text: ns)
             if NSMaxRange(lineRange) <= glyph { break }
             glyph = NSMaxRange(lineRange)
         }
+    }
+
+    private func drawMarks(
+        line: Int,
+        top: CGFloat,
+        height: CGFloat,
+        glyphs: NSRange,
+        layout: NSLayoutManager,
+        text: NSString
+    ) {
+        let x = ruleThickness - Self.markWidth
+        switch gutter.lines[line] {
+        case .added:
+            EditColors.added.setFill()
+            NSRect(x: x, y: top, width: Self.markWidth, height: height).fill()
+        case .modified:
+            EditColors.modified.setFill()
+            NSRect(x: x, y: top, width: Self.markWidth, height: height).fill()
+        case nil:
+            break
+        }
+        // A removal sits on the boundary below the last line of a wrapped paragraph, or above line 1.
+        let firstFragmentOfLineOne = line == 1 && layout.characterIndexForGlyph(at: glyphs.location) == 0
+        if firstFragmentOfLineOne, gutter.removedAfter.contains(0) {
+            drawWedge(at: top, x: x)
+        }
+        let lastChar = layout.characterIndexForGlyph(at: max(NSMaxRange(glyphs) - 1, glyphs.location))
+        let endsLine = lastChar >= text.length - 1 || LineBreaks.isBreak(at: lastChar, in: text)
+        if endsLine, gutter.removedAfter.contains(line) {
+            drawWedge(at: top + height, x: x)
+        }
+    }
+
+    private func drawWedge(at y: CGFloat, x: CGFloat) {
+        let wedge = NSBezierPath()
+        wedge.move(to: NSPoint(x: x - 3, y: y - 4))
+        wedge.line(to: NSPoint(x: ruleThickness, y: y))
+        wedge.line(to: NSPoint(x: x - 3, y: y + 4))
+        wedge.close()
+        EditColors.removed.setFill()
+        wedge.fill()
     }
 }
